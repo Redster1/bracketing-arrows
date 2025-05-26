@@ -50,7 +50,7 @@ export class ArrowsSettingTab extends PluginSettingTab {
 		.setName('Diagonal arrow style')
 		.setDesc('The style of diagonal arrows.')
 		.addDropdown(text => text
-			.addOptions({straight: "straight", fluid: "fluid", arc: "arc", magnet: "magnet"})
+			.addOptions({straight: "straight", fluid: "fluid", arc: "arc", magnet: "magnet", grid: "grid"})
 			.setValue(this.plugin.settings.diagonalArrowStyle)
 			.onChange(async (value) => {
 				this.plugin.settings.diagonalArrowStyle = value as LeaderLinePath;
