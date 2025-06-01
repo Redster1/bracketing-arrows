@@ -14,7 +14,8 @@ export interface ArrowIdentifierData {
     color?: string,
     type?: string,
     track?: number,
-    arrowArrowhead?: string
+    arrowArrowhead?: string,
+    labelText?: string  // NEW: extracted label text
 }
 
 export interface ArrowIdentifierPosData {
@@ -55,7 +56,37 @@ export function rangeWithinExcludedContext(from: number, to: number, state: Edit
 }
 
 export function arrowSourceToArrowIdentifierData(arrowSource: string):ArrowIdentifierData {
-    const options = arrowSource.split("|");
+    // First, check if there's a label (colon syntax)
+    let identifierPart = arrowSource;
+    let labelText: string | undefined;
+    
+    const colonIndex = arrowSource.indexOf(':');
+    if (colonIndex !== -1) {
+        // Split on the first colon only
+        const beforeColon = arrowSource.substring(0, colonIndex);
+        const afterColon = arrowSource.substring(colonIndex + 1);
+        
+        // Check if the colon is part of the identifier or if it's for the label
+        // by seeing if there's a pipe after the colon
+        const pipeIndex = afterColon.indexOf('|');
+        
+        if (pipeIndex !== -1) {
+            // Format: identifier:label|options
+            identifierPart = beforeColon + '|' + afterColon.substring(pipeIndex + 1);
+            labelText = afterColon.substring(0, pipeIndex);
+        } else {
+            // Format: identifier:label (no options) or identifier|option:something
+            const pipeInBefore = beforeColon.indexOf('|');
+            if (pipeInBefore === -1) {
+                // It's identifier:label format
+                identifierPart = beforeColon;
+                labelText = afterColon;
+            }
+            // else it's part of an option, not a label
+        }
+    }
+    
+    const options = identifierPart.split("|");
 
     const result:ArrowIdentifierData = {
         identifier: "",
@@ -64,6 +95,7 @@ export function arrowSourceToArrowIdentifierData(arrowSource: string):ArrowIdent
         type: MARGIN,
         opacity: 1,
         track: 0,
+        labelText: labelText  // Add the label text
     };
 
     result.arrowArrowhead = result.isStart ? NOARROW : ARROW;
@@ -312,7 +344,8 @@ function arrowIdentifierDataEqual(a: ArrowIdentifierData, b: ArrowIdentifierData
         && a.opacity === b.opacity
         && a.track === b.track
         && a.type === b.type
-        && a.arrowArrowhead === b.arrowArrowhead);
+        && a.arrowArrowhead === b.arrowArrowhead
+        && a.labelText === b.labelText);  // Include label text in equality check
 }
 
 export function arrowRecordsEqual(a: ArrowRecord, b: ArrowRecord) {
