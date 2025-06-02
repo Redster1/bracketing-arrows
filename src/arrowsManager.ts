@@ -11,31 +11,45 @@ export class ArrowsManager {
     private arrows: Map<HTMLElement, ArrowRecord[]>; // Index arrows by endEl
     // Use ArrowRecord[] instead of ArrowRecord, because *multiple* long margin arrows may be drawn
     // between the first and last `.cm-line`s
+    private arrowCountMap: Map<string, number>; // Track arrow counts between element pairs
 
     constructor(view: EditorView, container: HTMLElement) {
         this.view = view;
         this.container = container;
         this.arrows = new Map();
+        this.arrowCountMap = new Map();
     }
 
     // Helper function to create caption labels safely
-    private createCaptionLabel(text: string, color: string) {
+    private createCaptionLabel(text: string, color: string, offset: [number, number] = [0, 0]) {
         // @ts-ignore - captionLabel exists at runtime in the modified LeaderLine library
         if (typeof LeaderLine.captionLabel === 'function') {
             // @ts-ignore
             return LeaderLine.captionLabel(text, {
                 color: color,
-                offset: [0, 0]
+                offset: offset
             });
         }
         // Fallback: return undefined if captionLabel is not available
         return undefined;
     }
 
+    // Get and increment arrow index for a pair of elements
+    private getArrowIndex(startEl: HTMLElement, endEl: HTMLElement): number {
+        // Create a unique key for this element pair
+        const key = `${startEl.id || startEl.className}-${endEl.id || endEl.className}`;
+        const currentIndex = this.arrowCountMap.get(key) || 0;
+        this.arrowCountMap.set(key, currentIndex + 1);
+        return currentIndex;
+    }
+
     drawArrows(arrowIdentifierCollections: ArrowIdentifierCollection[]) {
         const view = this.view;
         const oldArrows = this.arrows;
         const newArrows = new Map();
+        
+        // Reset arrow count map for each redraw
+        this.arrowCountMap.clear();
 
         for (const arrowIdentifierCollection of arrowIdentifierCollections) {
             const start = arrowIdentifierCollection.start;
@@ -175,18 +189,27 @@ export class ArrowsManager {
         const plugs = getStartEndArrowPlugs(constants.DIAGONAL_ARROW, startArrowData.arrowArrowhead, endArrowData.arrowArrowhead);
         const labels = this.determineLabelPlacement(startArrowData, endArrowData);
 
+        // Get arrow index for this element pair to calculate offset
+        const arrowIndex = this.getArrowIndex(startEl, endEl);
+        
+        // For diagonal arrows, use arrow index to prevent overlap
+        // Alternate between above and below, with increasing distance
+        const isAbove = arrowIndex % 2 === 0;
+        const offsetDistance = Math.floor(arrowIndex / 2) * 20 + 10;
+        const labelOffset: [number, number] = [0, isAbove ? -offsetDistance : offsetDistance];
+
         // Create label objects if needed
         const labelOptions: any = {};
         if (labels.startLabel) {
-            const label = this.createCaptionLabel(labels.startLabel, color);
+            const label = this.createCaptionLabel(labels.startLabel, color, labelOffset);
             if (label) labelOptions.startLabel = label;
         }
         if (labels.middleLabel) {
-            const label = this.createCaptionLabel(labels.middleLabel, color);
+            const label = this.createCaptionLabel(labels.middleLabel, color, labelOffset);
             if (label) labelOptions.middleLabel = label;
         }
         if (labels.endLabel) {
-            const label = this.createCaptionLabel(labels.endLabel, color);
+            const label = this.createCaptionLabel(labels.endLabel, color, labelOffset);
             if (label) labelOptions.endLabel = label;
         }
 
@@ -216,18 +239,24 @@ export class ArrowsManager {
         track = fixMarginArrowTrackNo(track);
         const labels = this.determineLabelPlacement(startArrowData, endArrowData);
 
+        // Calculate label offset based on track number
+        // This prevents overlapping labels on arrows with different tracks
+        const verticalOffset = track * 15; // 15px vertical spacing per track
+        const horizontalOffset = -5; // Slight horizontal offset for better readability
+        const labelOffset: [number, number] = [horizontalOffset, verticalOffset];
+
         // Create label objects if needed
         const labelOptions: any = {};
         if (labels.startLabel) {
-            const label = this.createCaptionLabel(labels.startLabel, color);
+            const label = this.createCaptionLabel(labels.startLabel, color, labelOffset);
             if (label) labelOptions.startLabel = label;
         }
         if (labels.middleLabel) {
-            const label = this.createCaptionLabel(labels.middleLabel, color);
+            const label = this.createCaptionLabel(labels.middleLabel, color, labelOffset);
             if (label) labelOptions.middleLabel = label;
         }
         if (labels.endLabel) {
-            const label = this.createCaptionLabel(labels.endLabel, color);
+            const label = this.createCaptionLabel(labels.endLabel, color, labelOffset);
             if (label) labelOptions.endLabel = label;
         }
 
