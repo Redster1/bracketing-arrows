@@ -1,5 +1,5 @@
 {
-	"name": "arrows-in-md",
+	"name": "bracketing-arrows",
 	"version": "1.0.0",
 	"description": "Draw arrows across different parts of your notes, similar to on paper",
 	"main": "main.js",

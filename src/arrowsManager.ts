@@ -18,6 +18,20 @@ export class ArrowsManager {
         this.arrows = new Map();
     }
 
+    // Helper function to create caption labels safely
+    private createCaptionLabel(text: string, color: string) {
+        // @ts-ignore - captionLabel exists at runtime in the modified LeaderLine library
+        if (typeof LeaderLine.captionLabel === 'function') {
+            // @ts-ignore
+            return LeaderLine.captionLabel(text, {
+                color: color,
+                offset: [0, 0]
+            });
+        }
+        // Fallback: return undefined if captionLabel is not available
+        return undefined;
+    }
+
     drawArrows(arrowIdentifierCollections: ArrowIdentifierCollection[]) {
         const view = this.view;
         const oldArrows = this.arrows;
@@ -164,22 +178,16 @@ export class ArrowsManager {
         // Create label objects if needed
         const labelOptions: any = {};
         if (labels.startLabel) {
-            labelOptions.startLabel = LeaderLine.captionLabel(labels.startLabel, {
-                color: color,
-                offset: [0, 0]
-            });
+            const label = this.createCaptionLabel(labels.startLabel, color);
+            if (label) labelOptions.startLabel = label;
         }
         if (labels.middleLabel) {
-            labelOptions.middleLabel = LeaderLine.captionLabel(labels.middleLabel, {
-                color: color,
-                offset: [0, 0]
-            });
+            const label = this.createCaptionLabel(labels.middleLabel, color);
+            if (label) labelOptions.middleLabel = label;
         }
         if (labels.endLabel) {
-            labelOptions.endLabel = LeaderLine.captionLabel(labels.endLabel, {
-                color: color,
-                offset: [0, 0]
-            });
+            const label = this.createCaptionLabel(labels.endLabel, color);
+            if (label) labelOptions.endLabel = label;
         }
 
         // @ts-ignore
@@ -211,22 +219,16 @@ export class ArrowsManager {
         // Create label objects if needed
         const labelOptions: any = {};
         if (labels.startLabel) {
-            labelOptions.startLabel = LeaderLine.captionLabel(labels.startLabel, {
-                color: color,
-                offset: [0, 0]
-            });
+            const label = this.createCaptionLabel(labels.startLabel, color);
+            if (label) labelOptions.startLabel = label;
         }
         if (labels.middleLabel) {
-            labelOptions.middleLabel = LeaderLine.captionLabel(labels.middleLabel, {
-                color: color,
-                offset: [0, 0]
-            });
+            const label = this.createCaptionLabel(labels.middleLabel, color);
+            if (label) labelOptions.middleLabel = label;
         }
         if (labels.endLabel) {
-            labelOptions.endLabel = LeaderLine.captionLabel(labels.endLabel, {
-                color: color,
-                offset: [0, 0]
-            });
+            const label = this.createCaptionLabel(labels.endLabel, color);
+            if (label) labelOptions.endLabel = label;
         }
 
         // @ts-ignore

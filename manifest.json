@@ -1,11 +1,10 @@
 {
-	"id": "arrows-in-md",
-	"name": "Arrows",
+	"id": "bracketing-arrows",
+	"name": "Bracketing Arrows",
 	"version": "1.0.0",
 	"minAppVersion": "1.0.0",
 	"description": "Draw arrows across different parts of your notes, similar to on paper",
-	"author": "artisticat",
-	"authorUrl": "https://github.com/artisticat1",
-	"fundingUrl": "https://ko-fi.com/artisticat",
+	"author": "Redster1",
+	"authorUrl": "https://github.com/Redster1",
 	"isDesktopOnly": false
 }
