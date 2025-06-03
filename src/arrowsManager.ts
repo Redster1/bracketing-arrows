@@ -21,13 +21,13 @@ export class ArrowsManager {
     }
 
     // Helper function to create caption labels safely
-    private createCaptionLabel(text: string, color: string, offset: [number, number] = [0, 0]) {
+    private createCaptionLabel(text: string, color: string, lineOffset: number = 0) {
         // @ts-ignore - captionLabel exists at runtime in the modified LeaderLine library
         if (typeof LeaderLine.captionLabel === 'function') {
             // @ts-ignore
             return LeaderLine.captionLabel(text, {
                 color: color,
-                offset: offset
+                lineOffset: lineOffset  // Distance from the line
             });
         }
         // Fallback: return undefined if captionLabel is not available
@@ -196,20 +196,20 @@ export class ArrowsManager {
         // Alternate between above and below, with increasing distance
         const isAbove = arrowIndex % 2 === 0;
         const offsetDistance = Math.floor(arrowIndex / 2) * 20 + 10;
-        const labelOffset: [number, number] = [0, isAbove ? -offsetDistance : offsetDistance];
+        const lineOffset = isAbove ? -offsetDistance : offsetDistance;
 
         // Create label objects if needed
         const labelOptions: any = {};
         if (labels.startLabel) {
-            const label = this.createCaptionLabel(labels.startLabel, color, labelOffset);
+            const label = this.createCaptionLabel(labels.startLabel, color, lineOffset);
             if (label) labelOptions.startLabel = label;
         }
         if (labels.middleLabel) {
-            const label = this.createCaptionLabel(labels.middleLabel, color, labelOffset);
+            const label = this.createCaptionLabel(labels.middleLabel, color, lineOffset);
             if (label) labelOptions.middleLabel = label;
         }
         if (labels.endLabel) {
-            const label = this.createCaptionLabel(labels.endLabel, color, labelOffset);
+            const label = this.createCaptionLabel(labels.endLabel, color, lineOffset);
             if (label) labelOptions.endLabel = label;
         }
 
@@ -235,28 +235,36 @@ export class ArrowsManager {
 
         const color = colorToEffectiveColor(startArrowData.color, getArrowConfigFromView(this.view));
         const plugs = getStartEndArrowPlugs(constants.MARGIN_ARROW, startArrowData.arrowArrowhead, endArrowData.arrowArrowhead);
-        let track = startArrowData.track ? startArrowData.track : 0;
+        
+        // Store original track number for label positioning
+        const originalTrack = startArrowData.track ? startArrowData.track : 0;
+        let track = originalTrack;
         track = fixMarginArrowTrackNo(track);
+        
         const labels = this.determineLabelPlacement(startArrowData, endArrowData);
 
-        // Calculate label offset based on track number
-        // This prevents overlapping labels on arrows with different tracks
-        const verticalOffset = track * 15; // 15px vertical spacing per track
-        const horizontalOffset = -5; // Slight horizontal offset for better readability
-        const labelOffset: [number, number] = [horizontalOffset, verticalOffset];
+        // Get arrow index to prevent label overlap
+        const arrowIndex = this.getArrowIndex(startEl, endEl);
+        
+        // Calculate line offset based on track number AND arrow index
+        // For margin arrows, use negative offset to move labels to the left
+        const baseOffset = -10;
+        const trackSpacing = -20;
+        const indexSpacing = -15; // Additional spacing for each arrow to prevent overlap
+        const lineOffset = baseOffset + (originalTrack * trackSpacing) + (arrowIndex * indexSpacing);
 
         // Create label objects if needed
         const labelOptions: any = {};
         if (labels.startLabel) {
-            const label = this.createCaptionLabel(labels.startLabel, color, labelOffset);
+            const label = this.createCaptionLabel(labels.startLabel, color, lineOffset);
             if (label) labelOptions.startLabel = label;
         }
         if (labels.middleLabel) {
-            const label = this.createCaptionLabel(labels.middleLabel, color, labelOffset);
+            const label = this.createCaptionLabel(labels.middleLabel, color, lineOffset);
             if (label) labelOptions.middleLabel = label;
         }
         if (labels.endLabel) {
-            const label = this.createCaptionLabel(labels.endLabel, color, labelOffset);
+            const label = this.createCaptionLabel(labels.endLabel, color, lineOffset);
             if (label) labelOptions.endLabel = label;
         }
 
