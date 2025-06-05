@@ -3,7 +3,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { Workspace, MarkdownView } from "obsidian";
-import { ARROW, MARGIN, NOARROW, DISC, arrowTypes, arrowPlugTypes } from "./consts";
+import { ARROW, MARGIN, NOARROW, DISC, DIAGONAL, BRACKET, arrowTypes, arrowPlugTypes, CONNECTION_POINT_PATTERN, ARROWS_PREFIX } from "./consts";
 import { ArrowsPluginSettings } from "./settings";
 
 // Hierarchy connection points - where a child arrow can connect to its parent
@@ -30,7 +30,8 @@ export interface ArrowIdentifierData {
     type?: string,
     track?: number,
     arrowArrowhead?: string,
-    labelText?: string  // NEW: extracted label text
+    labelText?: string,  // Extracted label text
+    connectionPoint?: number  // NEW: Connection point number (1-4) for bracket structures
 }
 
 export interface ArrowIdentifierPosData {
@@ -76,12 +77,13 @@ export function arrowSourceToArrowIdentifierData(arrowSource: string):ArrowIdent
     // First, check if there's a label (colon syntax)
     let identifierPart = arrowSource;
     let labelText: string | undefined;
+    let connectionPoint: number | undefined;
     
-    const colonIndex = arrowSource.indexOf(':');
+    const colonIndex = identifierPart.indexOf(':');
     if (colonIndex !== -1) {
         // Split on the first colon only
-        const beforeColon = arrowSource.substring(0, colonIndex);
-        const afterColon = arrowSource.substring(colonIndex + 1);
+        const beforeColon = identifierPart.substring(0, colonIndex);
+        const afterColon = identifierPart.substring(colonIndex + 1);
         
         // Check if the colon is part of the identifier or if it's for the label
         // by seeing if there's a pipe after the colon
@@ -103,7 +105,22 @@ export function arrowSourceToArrowIdentifierData(arrowSource: string):ArrowIdent
         }
     }
     
+    // Split into identifier and options
     const options = identifierPart.split("|");
+    
+    // Check for bracket connection point syntax like "arrows:2"
+    for (let i = 0; i < options.length; i++) {
+        if (i > 0 && options[i] && options[i].startsWith(ARROWS_PREFIX)) {
+            const pointStr = options[i].substring(ARROWS_PREFIX.length);
+            const pointNum = parseInt(pointStr, 10);
+            if (!isNaN(pointNum) && pointNum >= 1 && pointNum <= 4) {
+                connectionPoint = pointNum;
+                // Remove this option from the array
+                options.splice(i, 1);
+                i--; // Adjust index after removal
+            }
+        }
+    }
 
     const result:ArrowIdentifierData = {
         identifier: "",
@@ -112,7 +129,8 @@ export function arrowSourceToArrowIdentifierData(arrowSource: string):ArrowIdent
         type: MARGIN,
         opacity: 1,
         track: 0,
-        labelText: labelText  // Add the label text
+        labelText: labelText,
+        connectionPoint: connectionPoint
     };
 
     result.arrowArrowhead = result.isStart ? NOARROW : ARROW;
@@ -151,6 +169,22 @@ export function arrowSourceToArrowIdentifierData(arrowSource: string):ArrowIdent
                 }
             }
         }
+    }
+
+    // Handle special identifiers
+    // 1. If the identifier is "bracket", set the type to BRACKET
+    if (result.identifier === "bracket") {
+        result.type = BRACKET;
+    }
+    
+    // 2. If this is an arrow that uses a connection point, mark it for bracket connection
+    if (connectionPoint !== undefined) {
+        result.connectionPoint = connectionPoint;
+    }
+    
+    // 3. If this is the main bracket that others connect to, ensure it's a bracket type
+    if (result.identifier === "main" && !connectionPoint) {
+        result.type = BRACKET;
     }
 
     return result;
@@ -417,23 +451,88 @@ export function buildArrowHierarchy(arrowIdentifierCollections: ArrowIdentifierC
         };
     });
     
-    // Sort collections by vertical position (top to bottom)
-    collections.sort((a, b) => {
-        const aPos = a.start?.from || 0;
-        const bPos = b.start?.from || 0;
-        return aPos - bPos;
-    });
+    // First, identify potential bracket groups
+    // A bracket group is a set of arrows that might form a hierarchy
+    const bracketGroups: ArrowIdentifierCollection[][] = [];
     
-    // Detect parent-child relationships based on proximity and alignment
+    // Group arrows that have similar track values - these are likely part of the same hierarchy
+    const trackedGroups = new Map<number, ArrowIdentifierCollection[]>();
+    
+    // Group by track (margin position)
+    for (const collection of collections) {
+        if (!collection.start) continue;
+        
+        const track = collection.start.arrowData.track || 0;
+        // Allow for slight variation in track position
+        const trackKey = Math.floor(track / 5) * 5;
+        
+        if (!trackedGroups.has(trackKey)) {
+            trackedGroups.set(trackKey, []);
+        }
+        trackedGroups.get(trackKey)?.push(collection);
+    }
+    
+    // Convert map to array of groups
+    for (const group of trackedGroups.values()) {
+        if (group.length > 1) {
+            // Sort by vertical position
+            group.sort((a, b) => {
+                const aPos = a.start?.from || 0;
+                const bPos = b.start?.from || 0;
+                return aPos - bPos;
+            });
+            bracketGroups.push(group);
+        }
+    }
+    
+    // Process each bracket group to establish hierarchies
+    for (const group of bracketGroups) {
+        // If only 1 arrow, nothing to do
+        if (group.length <= 1) continue;
+        
+        // Try to establish a root arrow for this group
+        // This is typically the topmost arrow
+        const root = group[0];
+        root.hierarchy!.level = 0;
+        root.hierarchy!.isJunction = group.length > 1;
+        
+        // Connect other arrows in the group to the root
+        for (let i = 1; i < group.length; i++) {
+            const current = group[i];
+            
+            // Connect to root
+            current.hierarchy!.parentId = root.identifier;
+            current.hierarchy!.level = 1;
+            
+            // Determine where to connect
+            current.hierarchy!.connectionPoint = determineConnectionPoint(current, root);
+            
+            // Add as child of root
+            root.hierarchy!.childIds.push(current.identifier);
+        }
+    }
+    
+    // Second pass: look for arrows that might be aligned but aren't in the same bracket group
+    // This helps catch hierarchies that span different margin positions
     for (let i = 0; i < collections.length; i++) {
         const current = collections[i];
         
-        // Look for potential parent arrows that are above the current one
-        for (let j = 0; j < i; j++) {
+        // Skip if already has a parent
+        if (current.hierarchy?.parentId) continue;
+        
+        // Look for potential parent arrows
+        for (let j = 0; j < collections.length; j++) {
+            if (i === j) continue;
+            
             const potential = collections[j];
             
-            // Skip if already has a parent or if the potential parent already has this as a child
-            if (current.hierarchy?.parentId || potential.hierarchy?.childIds.includes(current.identifier)) {
+            // Skip if potential already has this as a child
+            if (potential.hierarchy?.childIds.includes(current.identifier)) {
+                continue;
+            }
+            
+            // Skip if potential is not a junction and already has children
+            if (!potential.hierarchy?.isJunction && (potential.hierarchy?.childIds?.length || 0) > 0) {
                 continue;
             }
             
@@ -443,7 +542,7 @@ export function buildArrowHierarchy(arrowIdentifierCollections: ArrowIdentifierC
                 current.hierarchy!.parentId = potential.identifier;
                 current.hierarchy!.level = potential.hierarchy!.level + 1;
                 
-                // Determine connection point (top, middle, bottom)
+                // Determine connection point
                 current.hierarchy!.connectionPoint = determineConnectionPoint(current, potential);
                 
                 // Add current arrow as child of the parent
@@ -459,58 +558,154 @@ export function buildArrowHierarchy(arrowIdentifierCollections: ArrowIdentifierC
         }
     }
     
+    // Final validation - ensure no cycles in the hierarchy
+    // (This should never happen with our algorithm, but just to be safe)
+    validateHierarchy(collections);
+    
     return collections;
+}
+
+// Helper function to validate and fix any issues in the hierarchy
+function validateHierarchy(collections: ArrowIdentifierCollection[]) {
+    // Check for cycles in the hierarchy and fix them
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+    
+    function detectCycle(id: string): boolean {
+        if (!visited.has(id)) {
+            visited.add(id);
+            recursionStack.add(id);
+            
+            const collection = collections.find(c => c.identifier === id);
+            if (collection?.hierarchy?.parentId) {
+                if (!visited.has(collection.hierarchy.parentId)) {
+                    if (detectCycle(collection.hierarchy.parentId)) {
+                        return true;
+                    }
+                } else if (recursionStack.has(collection.hierarchy.parentId)) {
+                    // Cycle detected, break the cycle
+                    collection.hierarchy.parentId = undefined;
+                    collection.hierarchy.level = 0;
+                    
+                    // Remove from parent's children
+                    const parent = collections.find(c => c.identifier === collection.hierarchy!.parentId);
+                    if (parent?.hierarchy?.childIds) {
+                        const index = parent.hierarchy.childIds.indexOf(id);
+                        if (index !== -1) {
+                            parent.hierarchy.childIds.splice(index, 1);
+                        }
+                    }
+                    
+                    return true;
+                }
+            }
+            
+            recursionStack.delete(id);
+        }
+        
+        return false;
+    }
+    
+    // Check each collection
+    for (const collection of collections) {
+        if (!visited.has(collection.identifier)) {
+            detectCycle(collection.identifier);
+        }
+    }
 }
 
 // Helper function to determine if two arrows should be aligned in a hierarchy
 function areArrowsAligned(child: ArrowIdentifierCollection, parent: ArrowIdentifierCollection): boolean {
-    // This is a simplified version - in a real implementation, you'd need more
-    // sophisticated spatial analysis
-    
-    // For this example, we'll consider arrows aligned if:
-    // 1. They have the same track value or
-    // 2. Their tracks are within a certain proximity
+    // For arrows to be aligned in a hierarchy, we check multiple conditions:
     
     if (!child.start || !parent.start) return false;
     
+    // 1. Check track proximity - arrows in the same hierarchy should be at similar margin positions
     const childTrack = child.start.arrowData.track || 0;
     const parentTrack = parent.start.arrowData.track || 0;
-    
-    // Consider aligned if track difference is small
     const trackDifference = Math.abs(childTrack - parentTrack);
-    return trackDifference <= 5; // arbitrary threshold
+    
+    // 2. Check vertical proximity - child should be within a reasonable distance from parent
+    const childPos = child.start.from;
+    const parentPos = parent.start.from;
+    const verticalDistance = Math.abs(childPos - parentPos);
+    
+    // If the tracks are exactly the same, more lenient on vertical distance
+    if (trackDifference === 0) {
+        return verticalDistance < 1000; // arbitrary but generous threshold
+    }
+    
+    // If tracks are close but not exact, be more strict on vertical distance
+    if (trackDifference <= 3) {
+        return verticalDistance < 500;
+    }
+    
+    // Otherwise, not considered aligned
+    return false;
 }
 
 // Helper function to determine where a child arrow connects to its parent
 function determineConnectionPoint(child: ArrowIdentifierCollection, parent: ArrowIdentifierCollection): ConnectionPoint {
     if (!child.start || !parent.start) return ConnectionPoint.MIDDLE;
     
-    // Get vertical positions of the parent's end points
+    // Get parent's ends and child's position
     const parentEnds = parent.ends;
     if (parentEnds.length === 0) return ConnectionPoint.MIDDLE;
     
-    // Sort parent ends by position
+    // Sort parent ends by vertical position
     const sortedEnds = [...parentEnds].sort((a, b) => a.from - b.from);
     
-    // If parent has only one end, connect to the middle
-    if (sortedEnds.length === 1) return ConnectionPoint.MIDDLE;
-    
-    // Determine relative position of child to parent's ends
+    // Get child's position
     const childPos = child.start.from;
-    const firstEndPos = sortedEnds[0].from;
-    const lastEndPos = sortedEnds[sortedEnds.length - 1].from;
     
-    // Calculate positions for top third, middle third, bottom third
-    const totalRange = lastEndPos - firstEndPos;
-    const firstThird = firstEndPos + totalRange * 0.33;
-    const secondThird = firstEndPos + totalRange * 0.66;
-    
-    // Determine connection point based on position
-    if (childPos < firstThird) {
-        return ConnectionPoint.TOP;
-    } else if (childPos < secondThird) {
-        return ConnectionPoint.MIDDLE;
-    } else {
-        return ConnectionPoint.BOTTOM;
+    // If we have only two endpoints (most common case)
+    if (sortedEnds.length === 2) {
+        const topEnd = sortedEnds[0];
+        const bottomEnd = sortedEnds[1];
+        
+        // Calculate the position thresholds - we want a bit more sophisticated approach
+        // than just dividing into thirds
+        const totalDistance = bottomEnd.from - topEnd.from;
+        const oneThird = topEnd.from + totalDistance / 3;
+        const twoThirds = bottomEnd.from - totalDistance / 3;
+        
+        // Determine where the child should connect
+        if (childPos <= oneThird) {
+            return ConnectionPoint.TOP;
+        } else if (childPos >= twoThirds) {
+            return ConnectionPoint.BOTTOM;
+        } else {
+            return ConnectionPoint.MIDDLE;
+        }
+    } 
+    // For more than two endpoints, use a more general approach
+    else if (sortedEnds.length > 2) {
+        // Get top and bottom endpoints
+        const topEnd = sortedEnds[0];
+        const bottomEnd = sortedEnds[sortedEnds.length - 1];
+        
+        // Find the nearest endpoint to the child
+        let nearestEndIdx = 0;
+        let minDistance = Number.MAX_SAFE_INTEGER;
+        
+        for (let i = 0; i < sortedEnds.length; i++) {
+            const distance = Math.abs(sortedEnds[i].from - childPos);
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestEndIdx = i;
+            }
+        }
+        
+        // Determine position based on nearest endpoint
+        if (nearestEndIdx === 0) {
+            return ConnectionPoint.TOP;
+        } else if (nearestEndIdx === sortedEnds.length - 1) {
+            return ConnectionPoint.BOTTOM;
+        } else {
+            return ConnectionPoint.MIDDLE;
+        }
     }
+    
+    // Default fallback
+    return ConnectionPoint.MIDDLE;
 }

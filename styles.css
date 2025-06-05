@@ -10,8 +10,58 @@
     cursor: pointer;
 }
 
+.arrow-identifier-prettified-circle[data-hierarchy-level="1"] {
+    font-weight: bold;
+}
+
+.arrow-identifier-prettified-circle[data-hierarchy-level="2"] {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
 .leader-line {
     z-index: -1;
+}
+
+/* Bracket/Tree structure styling */
+.leader-line.bracket-arrow {
+    z-index: -2; /* Put brackets behind standard arrows */
+}
+
+/* Connection point markers */
+.leader-line[data-connection-point="1"] {
+    /* Top connection point */
+    z-index: -2;
+}
+
+.leader-line[data-connection-point="2"] {
+    /* Upper middle connection point */
+    z-index: -2;
+}
+
+.leader-line[data-connection-point="3"] {
+    /* Lower middle connection point */
+    z-index: -2;
+}
+
+.leader-line[data-connection-point="4"] {
+    /* Bottom connection point */
+    z-index: -2;
+}
+
+/* Hierarchy styling */
+.leader-line.hierarchy-junction {
+    z-index: -2; /* Put junctions behind other arrows */
+}
+
+.leader-line.hierarchy-level-1 {
+    /* Child level arrows */
+    z-index: -1;
+}
+
+.leader-line.hierarchy-level-2 {
+    /* Grandchild level arrows */
+    z-index: 0;
 }
 
 .arrows-custom-colors-input textarea {

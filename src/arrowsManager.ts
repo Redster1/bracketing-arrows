@@ -1,6 +1,7 @@
 import { EditorView } from "@codemirror/view";
 import LeaderLine from "leaderline";
-import { ArrowIdentifierCollection, ArrowIdentifierData, ArrowIdentifierPosData, getStartEndArrowPlugs, fixMarginArrowTrackNo, makeArrowArc, posToOffscreenPosition, OffscreenPosition, ArrowRecord, getElementOffset, arrowRecordsEqual, colorToEffectiveColor, ConnectionPoint } from './utils';
+import { ArrowIdentifierCollection, ArrowIdentifierData, ArrowIdentifierPosData, getStartEndArrowPlugs, fixMarginArrowTrackNo, makeArrowArc, posToOffscreenPosition, OffscreenPosition, ArrowRecord, getElementOffset, arrowRecordsEqual, colorToEffectiveColor, ConnectionPoint, HierarchyInfo } from './utils';
+import { BRACKET } from './consts';
 import * as constants from "./consts";
 import { getArrowConfigFromView } from "./arrowsConfig";
 
@@ -92,7 +93,29 @@ export class ArrowsManager {
                 else {
                     // Draw an arrow between startEl and endEl
                     try {
-                        const line = this.drawArrow(startEl, endEl, start.arrowData, end.arrowData, startOffscreen, endOffscreen);
+                        // Check if this is the "main" bracket that others should connect to
+                        const isBracketArrow = start.arrowData.identifier === "bracket" || 
+                                              start.arrowData.type === BRACKET;
+                        
+                        // Set junction flag if this is a bracket arrow that others will connect to
+                        if (isBracketArrow && !arrowIdentifierCollection.hierarchy) {
+                            arrowIdentifierCollection.hierarchy = {
+                                level: 0,
+                                childIds: [],
+                                isJunction: true
+                            };
+                        }
+                        
+                        // Pass hierarchy information to the draw function
+                        const line = this.drawArrow(
+                            startEl, 
+                            endEl, 
+                            start.arrowData, 
+                            end.arrowData, 
+                            startOffscreen, 
+                            endOffscreen, 
+                            arrowIdentifierCollection.hierarchy
+                        );
                         if (!line) continue;
 
                         const record = this.getArrowRecord(line, startEl, endEl, start.arrowData, end.arrowData, startOffscreen, endOffscreen);
@@ -115,26 +138,9 @@ export class ArrowsManager {
             }
         }
 
-        // Second pass: Draw connections between hierarchical arrows
-        for (const arrowIdentifierCollection of sortedCollections) {
-            if (!arrowIdentifierCollection.hierarchy?.parentId) continue;
-            
-            const parentId = arrowIdentifierCollection.hierarchy.parentId;
-            const parentEl = this.junctionPoints.get(parentId);
-            
-            if (!parentEl || !arrowIdentifierCollection.start) continue;
-            
-            const childEl = this.arrowIdentifierPosDataToDomElement(arrowIdentifierCollection.start);
-            if (!(childEl instanceof HTMLElement)) continue;
-            
-            // Draw connection line based on the connection point
-            this.drawHierarchyConnection(
-                parentEl, 
-                childEl, 
-                arrowIdentifierCollection.hierarchy.connectionPoint || ConnectionPoint.MIDDLE,
-                arrowIdentifierCollection.start.arrowData.color
-            );
-        }
+        // We no longer need to draw separate connection lines
+        // Since the margin arrows now have modified paths based on hierarchy
+        // The bracket shapes are created directly in the drawMarginArrow method
 
         // Remove old arrows
         this.removeAllArrows(oldArrows);
@@ -152,7 +158,23 @@ export class ArrowsManager {
         
         // Calculate the appropriate connection points based on the specified connection point
         const parentAnchor = this.getConnectionAnchor(parentEl, connectionPoint);
-        const childAnchor = LeaderLine.PointAnchor(childEl, {x: -constants.MARGIN_ARROW_X_OFFSET - 5, y: childEl.offsetTop + (childEl.offsetHeight / 2)});
+        
+        // Adjust child anchor to connect closer to the start of the child arrow
+        // and slightly offset from the margin to create a better visual
+        const childAnchor = LeaderLine.PointAnchor(childEl, {
+            x: -constants.MARGIN_ARROW_X_OFFSET - 10, 
+            y: childEl.offsetTop + (childEl.offsetHeight / 2)
+        });
+        
+        // Get parent line position to determine path style
+        const parentLineHeight = parentEl.offsetHeight;
+        const childLinePos = childEl.offsetTop + (childEl.offsetHeight / 2);
+        const parentMiddlePos = parentEl.offsetTop + (parentEl.offsetHeight / 2);
+        
+        // Determine if we should use a curved or straight path
+        // For arrows that connect to points far from the middle, a curve looks better
+        const pathStyle = Math.abs(childLinePos - parentMiddlePos) > (parentLineHeight / 3) ? 
+            'arc' : 'straight';
         
         // @ts-ignore
         const line = new LeaderLine({
@@ -163,29 +185,64 @@ export class ArrowsManager {
             size: constants.ARROW_SIZE * 0.75, // Slightly thinner than regular arrows
             startPlug: 'behind',
             endPlug: 'behind',
-            path: 'straight'
+            path: pathStyle,
+            startSocketGravity: 50, // Add some gravity to create better curves
+            endSocketGravity: 50,   // when using the arc path
         });
         
-        // No need to track these connections in the arrows map since they're
-        // automatically redrawn when the parent arrows are redrawn
+        // If we have a straight path, make it look better by adding a small
+        // path animation/adjustment using custom SVG path
+        if (pathStyle === 'straight' && 
+            connectionPoint !== ConnectionPoint.MIDDLE) {
+            try {
+                // @ts-ignore - _id exists at runtime
+                const arrowId = line._id;
+                const pathElement = document.getElementById(`leader-line-${arrowId}-line-path`);
+                if (pathElement) {
+                    // Create a slight curve to make it more visually appealing
+                    const curveOffset = connectionPoint === ConnectionPoint.TOP ? -5 : 5;
+                    const d = pathElement.getAttribute('d');
+                    if (d && d.startsWith('M') && d.includes('L')) {
+                        const parts = d.split('L');
+                        const start = parts[0].substring(1).split(',').map(Number);
+                        const end = parts[1].split(',').map(Number);
+                        
+                        // Create a curve that bends slightly outward
+                        const midX = (start[0] + end[0]) / 2 + 10;
+                        const midY = (start[1] + end[1]) / 2 + curveOffset;
+                        const newPath = `M${start[0]},${start[1]} Q${midX},${midY} ${end[0]},${end[1]}`;
+                        
+                        pathElement.setAttribute('d', newPath);
+                    }
+                }
+            } catch (e) {
+                // Fallback to default path if custom path manipulation fails
+            }
+        }
         
         return line;
     }
     
     // Get the appropriate anchor point based on the connection point type
     private getConnectionAnchor(el: HTMLElement, connectionPoint: ConnectionPoint) {
-        const x = -constants.MARGIN_ARROW_X_OFFSET - 20; // Offset from the margin
+        // Position the x-coordinate further left of the margin for cleaner visuals
+        const x = -constants.MARGIN_ARROW_X_OFFSET - 25; 
         let y;
         
+        // Improved positioning based on the connection point
+        // with better offsets to match the expected visual layout
         switch (connectionPoint) {
             case ConnectionPoint.TOP:
-                y = el.offsetTop;
+                // Connect near the top, but with a small offset to look natural
+                y = el.offsetTop + (el.offsetHeight * 0.15);
                 break;
             case ConnectionPoint.BOTTOM:
-                y = el.offsetTop + el.offsetHeight;
+                // Connect near the bottom, but with a small offset to look natural
+                y = el.offsetTop + (el.offsetHeight * 0.85);
                 break;
             case ConnectionPoint.MIDDLE:
             default:
+                // Center connection
                 y = el.offsetTop + (el.offsetHeight / 2);
                 break;
         }
@@ -238,18 +295,205 @@ export class ArrowsManager {
         return -1;
     }
 
-    drawArrow(startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition) {
+    drawArrow(startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition, hierarchy?: HierarchyInfo) {
         let line;
-        if (startArrowData.type == constants.DIAGONAL) {
+        
+        // Choose the appropriate drawing method based on the arrow type
+        if (startArrowData.type === constants.DIAGONAL) {
             line = this.drawDiagonalArrow(startEl, endEl, startArrowData, endArrowData);
         }
-        else {
-            line = this.drawMarginArrow(startEl, endEl, startArrowData, endArrowData, startOffscreen, endOffscreen);
+        else if (startArrowData.type === constants.BRACKET) {
+            // New bracket type arrows (tree structure)
+            line = this.drawBracketArrow(startEl, endEl, startArrowData, endArrowData, startOffscreen, endOffscreen);
         }
+        else {
+            // Standard margin arrows
+            line = this.drawMarginArrow(startEl, endEl, startArrowData, endArrowData, startOffscreen, endOffscreen, hierarchy);
+        }
+        
         if (line) {
             line.element.style.opacity = startArrowData.opacity.toString();
+            
+            // Add CSS class based on hierarchy level for styling
+            if (hierarchy && hierarchy.level > 0) {
+                line.element.classList.add(`hierarchy-level-${hierarchy.level}`);
+            }
+            
+            // Mark junction elements
+            if (hierarchy && hierarchy.isJunction) {
+                line.element.classList.add('hierarchy-junction');
+            }
+            
+            // Add connection point number as a data attribute if specified
+            if (startArrowData.connectionPoint) {
+                line.element.setAttribute('data-connection-point', startArrowData.connectionPoint.toString());
+            }
         }
+        
         return line;
+    }
+    
+    // New method to draw bracket-style arrows with connection points
+    drawBracketArrow(startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition) {
+        const res = this.getMarginArrowStartEndAnchors(startEl, endEl, startOffscreen, endOffscreen);
+        if (!res) return;
+        const {startAnchor, endAnchor} = res;
+
+        const color = colorToEffectiveColor(startArrowData.color, getArrowConfigFromView(this.view));
+        const plugs = getStartEndArrowPlugs(constants.MARGIN_ARROW, startArrowData.arrowArrowhead, endArrowData.arrowArrowhead);
+        
+        // Use track for horizontal position if specified
+        const track = fixMarginArrowTrackNo(startArrowData.track || 0);
+        
+        // Determine labels
+        const labels = this.determineLabelPlacement(startArrowData, endArrowData);
+        const labelOptions: any = {};
+        if (labels.startLabel) {
+            const label = this.createCaptionLabel(labels.startLabel, color);
+            if (label) labelOptions.startLabel = label;
+        }
+        if (labels.middleLabel) {
+            const label = this.createCaptionLabel(labels.middleLabel, color);
+            if (label) labelOptions.middleLabel = label;
+        }
+        if (labels.endLabel) {
+            const label = this.createCaptionLabel(labels.endLabel, color);
+            if (label) labelOptions.endLabel = label;
+        }
+        
+        // Custom path option for bracket arrows
+        const path = "grid";
+        
+        // Create connection points for tree structure
+        const connectionPoint = startArrowData.connectionPoint || 0;
+        let startSocketGravity: [number, number] = [-3*track, 0];
+        
+        // @ts-ignore
+        const line = new LeaderLine({
+            parent: this.container,
+            start: startAnchor,
+            end: endAnchor,
+            color: color,
+            size: constants.ARROW_SIZE,
+            ...plugs,
+            ...labelOptions,
+            path: path,
+            startSocket: "left",
+            endSocket: "left",
+            startSocketGravity: startSocketGravity
+        });
+        
+        // Store connection point information on the line element
+        if (connectionPoint) {
+            // @ts-ignore - _id exists at runtime
+            const arrowId = line._id;
+            const lineElement = document.getElementById(`leader-line-${arrowId}`);
+            if (lineElement) {
+                lineElement.setAttribute('data-connection-point', connectionPoint.toString());
+                lineElement.classList.add('bracket-arrow');
+            }
+        }
+        
+        // Create bracket shape with rounded corners
+        const radius = 22.5 + track * 1.5;
+        makeArrowArc(line, radius);
+        
+        // Further customize the SVG path for bracket arrows
+        this.customizeBracketArrowPath(line, connectionPoint);
+        
+        return line;
+    }
+    
+    // Customize the bracket arrow path based on connection point
+    private customizeBracketArrowPath(line: LeaderLine, connectionPoint: number) {
+        try {
+            // @ts-ignore - _id exists at runtime
+            const arrowId = line._id;
+            const pathElement = document.getElementById(`leader-line-${arrowId}-line-path`);
+            
+            if (!pathElement) return;
+            
+            // Get the original path
+            const originalPath = pathElement.getAttribute('d');
+            if (!originalPath) return;
+            
+            // Extract the path segments
+            const segments = originalPath.split(/([MLQ])/).filter(Boolean);
+            
+            // If no connection point is specified, just use the default path
+            if (!connectionPoint || connectionPoint === 0) return;
+            
+            // Create a numbered connection point on the vertical line
+            let newPath = '';
+            let i = 0;
+            let verticalSegmentFound = false;
+            
+            while (i < segments.length) {
+                const segmentType = segments[i];
+                
+                if (segmentType === 'L' && !verticalSegmentFound) {
+                    // Check if this is the vertical segment (first L segment usually)
+                    const coords = segments[i+1].trim().split(/[, ]/).map(parseFloat);
+                    
+                    if (coords.length === 2 && i > 2) {
+                        const prevSegment = segments[i-1].trim().split(/[, ]/).map(parseFloat);
+                        
+                        if (prevSegment.length === 2 && Math.abs(prevSegment[0] - coords[0]) < 1) {
+                            // This is a vertical segment
+                            verticalSegmentFound = true;
+                            
+                            // Calculate the position for the connection point
+                            const totalHeight = Math.abs(coords[1] - prevSegment[1]);
+                            const numPoints = 4; // We support up to 4 connection points
+                            const pointInterval = totalHeight / (numPoints + 1);
+                            
+                            // Ensure connection point is within valid range
+                            const safePoint = Math.max(1, Math.min(numPoints, connectionPoint));
+                            
+                            // Calculate the Y position for this connection point
+                            let y;
+                            if (prevSegment[1] < coords[1]) {
+                                // Top to bottom
+                                y = prevSegment[1] + (safePoint * pointInterval);
+                            } else {
+                                // Bottom to top
+                                y = prevSegment[1] - (safePoint * pointInterval);
+                            }
+                            
+                            // Add a small perpendicular line at the connection point
+                            const markerSize = 8; // Size of connection marker
+                            const markerX = prevSegment[0] - markerSize;
+                            
+                            // Add the connection point to the path
+                            newPath += `${segmentType} ${prevSegment[0]},${y} `;
+                            // Add horizontal marker line
+                            newPath += `L ${markerX},${y} `;
+                            // Continue to the end point
+                            newPath += `L ${prevSegment[0]},${y} L ${coords[0]},${coords[1]} `;
+                            
+                            i += 2;
+                            continue;
+                        }
+                    }
+                }
+                
+                // Add the segment as is
+                newPath += segmentType;
+                if (i + 1 < segments.length && !segments[i+1].match(/[MLQ]/)) {
+                    newPath += segments[i+1];
+                    i += 2;
+                } else {
+                    i++;
+                }
+            }
+            
+            // Apply the new path if we modified it
+            if (verticalSegmentFound) {
+                pathElement.setAttribute('d', newPath);
+            }
+        } catch (e) {
+            console.error('Error customizing bracket arrow path:', e);
+        }
     }
 
     private determineLabelPlacement(startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData) {
@@ -320,7 +564,7 @@ export class ArrowsManager {
         return line;
     }
 
-    drawMarginArrow(startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition) {
+    drawMarginArrow(startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition, hierarchy?: HierarchyInfo) {
         const res = this.getMarginArrowStartEndAnchors(startEl, endEl, startOffscreen, endOffscreen);
         if (!res) return;
         const {startAnchor, endAnchor} = res;
@@ -360,6 +604,20 @@ export class ArrowsManager {
             if (label) labelOptions.endLabel = label;
         }
 
+        // Check if this is a parent arrow in a hierarchy
+        const isJunction = hierarchy?.isJunction === true;
+        
+        // Choose the path style based on whether this is a junction
+        const pathStyle = isJunction ? "grid" : "grid";
+        
+        // Determine socket gravity (affects how the line bends)
+        let socketGravity: [number, number] = [-3*track, 0];
+        
+        // For junction arrows, use stronger gravity to create better bracket shape
+        if (isJunction) {
+            socketGravity = [-5*track, 0];
+        }
+
         // @ts-ignore
         const line = new LeaderLine({
             parent: this.container,
@@ -369,18 +627,134 @@ export class ArrowsManager {
             size: constants.ARROW_SIZE,
             ...plugs,
             ...labelOptions,
-            path: "grid",
+            path: pathStyle,
             startSocket: "left",
             endSocket: "left",
-            startSocketGravity: [-3*track, 0]
+            startSocketGravity: socketGravity
         });
+
+        // Add data attribute to the line element for hierarchy relationships
+        if (hierarchy) {
+            // @ts-ignore - _id exists at runtime
+            const arrowId = line._id;
+            const lineElement = document.getElementById(`leader-line-${arrowId}`);
+            if (lineElement) {
+                lineElement.setAttribute('data-hierarchy-level', hierarchy.level.toString());
+                if (hierarchy.isJunction) {
+                    lineElement.setAttribute('data-is-junction', 'true');
+                }
+                if (hierarchy.childIds.length > 0) {
+                    lineElement.setAttribute('data-has-children', 'true');
+                    lineElement.setAttribute('data-child-ids', hierarchy.childIds.join(','));
+                }
+                if (hierarchy.parentId) {
+                    lineElement.setAttribute('data-parent-id', hierarchy.parentId);
+                }
+            }
+        }
 
         // Give the arrow rounded corners
         // Not supported by the leader-line library, so do this manually
-        const radius = 22.5 + 3/2*track;
+        let radius = 22.5 + 3/2*track;
+        
+        // For junction arrows, use a larger radius to create a better bracket shape
+        if (isJunction) {
+            radius = 30 + 3/2*track;
+        }
+        
         makeArrowArc(line, radius);
+        
+        // If this is a junction arrow with child connections, modify the path to create bracket structure
+        if (isJunction && hierarchy?.childIds.length) {
+            this.enhanceBracketShape(line, hierarchy);
+        }
 
         return line;
+    }
+    
+    // Create a bracket-like shape for junction arrows
+    private enhanceBracketShape(line: LeaderLine, hierarchy: HierarchyInfo) {
+        try {
+            // @ts-ignore - _id exists at runtime
+            const arrowId = line._id;
+            const pathElement = document.getElementById(`leader-line-${arrowId}-line-path`);
+            
+            if (!pathElement) return;
+            
+            // Get the original path
+            const originalPath = pathElement.getAttribute('d');
+            if (!originalPath) return;
+            
+            // Find child connections if needed for precise positioning
+            const childConnections = hierarchy.childIds.map((childId: string) => {
+                const childCollection = Array.from(this.arrows.values())
+                    .flat()
+                    .find(arrow => 
+                        arrow.startArrowData.identifier === childId || 
+                        arrow.endArrowData.identifier === childId
+                    );
+                return childCollection;
+            }).filter(Boolean);
+            
+            // If we have at least one child, modify the path
+            if (childConnections.length > 0) {
+                // We need to identify horizontal segments in the path and extend them
+                // This is a complex operation that depends on the path structure
+                // For now, we'll use a simplified approach that works with the grid path type
+                
+                // Extract path segments
+                const segments = originalPath.split(/([MLQ])/).filter(Boolean);
+                
+                // Create a new path with extended horizontal segments
+                let newPath = '';
+                let i = 0;
+                
+                while (i < segments.length) {
+                    const segmentType = segments[i];
+                    
+                    if (segmentType === 'L') {
+                        // This is a line segment
+                        const coords = segments[i+1].trim().split(/[, ]/).map(parseFloat);
+                        
+                        // Check if this is a horizontal segment (y values are the same)
+                        if (coords.length === 2 && i > 2) {
+                            const prevSegment = segments[i-1].trim().split(/[, ]/).map(parseFloat);
+                            
+                            if (prevSegment.length === 2 && Math.abs(prevSegment[1] - coords[1]) < 1) {
+                                // This is a horizontal segment, extend it
+                                const extension = 10; // Extend by 10px
+                                if (prevSegment[0] < coords[0]) {
+                                    // Left to right, extend right
+                                    coords[0] += extension;
+                                } else {
+                                    // Right to left, extend left
+                                    coords[0] -= extension;
+                                }
+                                
+                                // Add the modified segment
+                                newPath += `${segmentType} ${coords[0]},${coords[1]} `;
+                                i += 2;
+                                continue;
+                            }
+                        }
+                    }
+                    
+                    // Add the segment as is
+                    newPath += segmentType;
+                    if (i + 1 < segments.length && !segments[i+1].match(/[MLQ]/)) {
+                        newPath += segments[i+1];
+                        i += 2;
+                    } else {
+                        i++;
+                    }
+                }
+                
+                // Apply the new path
+                pathElement.setAttribute('d', newPath);
+            }
+        } catch (e) {
+            console.error('Error enhancing bracket shape:', e);
+        }
     }
 
     getArrowRecord(line:LeaderLine, startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition) {

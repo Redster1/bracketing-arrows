@@ -113,6 +113,24 @@ Write
 - `{arrow-identifier}` to denote the end of an arrow.
     - Write `{arrow-identifier|no-arrow}` instead to remove the arrowhead from the end of the arrow.
 
+### Bracket hierarchies (NEW)
+You can create bracket hierarchies with numbered connection points by using the special `arrows:N` syntax:
+
+- `{arrows:N}` where N is a number from 1-4 that indicates which connection point on the bracket to use:
+  - `{arrows:1}` - Connect to the top point of the bracket
+  - `{arrows:2}` - Connect to the upper middle point of the bracket
+  - `{arrows:3}` - Connect to the lower middle point of the bracket
+  - `{arrows:4}` - Connect to the bottom point of the bracket
+
+Example:
+```
+{bracket|blue} This is the main bracket with multiple connection points.
+
+{main|arrows:1} This connects to connection point 1 (top).
+{main|arrows:2} This connects to connection point 2 (upper middle).
+{main|arrows:4} This connects to connection point 4 (bottom).
+```
+
 Arrows will be drawn from each start identifier to all corresponding end identifiers.
 
 ## Limitations
