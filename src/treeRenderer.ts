@@ -33,6 +33,7 @@ export class TreeRenderer {
      */
     renderTree(treeData: TreeData, constraints: RenderConstraints): SVGElement | null {
         if (!treeData || !treeData.root) {
+            console.log("[1Bracket] No valid tree data to render");
             return null;
         }
         
@@ -61,21 +62,32 @@ export class TreeRenderer {
         g.setAttribute("transform", `translate(${margin.left},${margin.top})`);
         svg.appendChild(g);
         
-        // Create a D3 hierarchy from the tree data
-        const root = hierarchy(treeData.root) as HierarchyNode<TreeNode>;
-        
-        // Create a tree layout - using flipped coordinates for left-to-right orientation
-        const treeLayout = tree<TreeNode>()
-            .size([innerHeight, innerWidth]);  // Note: swapped for horizontal layout
-        
-        // Apply the layout to the hierarchy
-        const nodes = treeLayout(root);
-        
-        // Create links
-        this.renderLinks(g, nodes, settings);
-        
-        // Create nodes
-        this.renderNodes(g, nodes, settings);
+        try {
+            // Create a D3 hierarchy from the tree data
+            const root = hierarchy(treeData.root) as HierarchyNode<TreeNode>;
+            
+            // Create a tree layout - using flipped coordinates for left-to-right orientation
+            const treeLayout = tree<TreeNode>()
+                .size([innerHeight, innerWidth]);  // Note: swapped for horizontal layout
+            
+            // Apply the layout to the hierarchy
+            const nodes = treeLayout(root);
+            
+            // Create links
+            this.renderLinks(g, nodes, settings);
+            
+            // Create nodes
+            this.renderNodes(g, nodes, settings);
+        } catch (error) {
+            console.error("[1Bracket] Error rendering tree:", error);
+            // Create a simple error message in the SVG
+            const errorText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            errorText.setAttribute("x", "10");
+            errorText.setAttribute("y", "20");
+            errorText.setAttribute("fill", "red");
+            errorText.textContent = "Error rendering tree";
+            g.appendChild(errorText);
+        }
         
         // Add the SVG to the container
         return svg;
@@ -143,18 +155,19 @@ export class TreeRenderer {
      */
     positionTreeSVG(svg: SVGElement, treePosition: number) {
         const pos = this.view.coordsAtPos(treePosition);
-        if (!pos) return;
+        if (!pos) {
+            console.log("[1Bracket] Unable to get coordinates for position:", treePosition);
+            return;
+        }
         
         // Position the SVG at the correct document position
         svg.style.position = "absolute";
         svg.style.top = `${pos.top}px`;
-        svg.style.left = "0"; // Changed from right to left
-        svg.classList.add("discourse-tree-svg");
+        svg.style.left = "0";
         
         // Add the SVG to the container
         this.container.appendChild(svg);
         
-        // Debug message for positioning
         console.log(`[1Bracket] Positioned tree at top: ${pos.top}px, left: 0`);
     }
     

@@ -1,44 +1,50 @@
 /* Node syntax in the document */
 .tree-node-syntax {
-    color: var(--text-accent);
-    cursor: pointer;
-    background-color: rgba(150, 150, 255, 0.1);
-    padding: 0 2px;
+    color: var(--text-faint);
+    opacity: 0.3;
+    transition: opacity 0.2s ease, color 0.2s ease;
     border-radius: 3px;
+    cursor: text;
+    user-select: text;
 }
 
+/* Show node syntax when line is focused/hovered */
+.cm-line:hover .tree-node-syntax,
+.cm-line.cm-active .tree-node-syntax,
 .tree-node-syntax:hover {
-    color: var(--text-accent-hover);
-    background-color: rgba(150, 150, 255, 0.2);
+    opacity: 1;
+    color: var(--text-accent);
+    background-color: rgba(150, 150, 255, 0.1);
 }
 
 /* Container for tree visualizations */
 .discourse-tree-container {
     position: absolute;
     top: 0;
-    left: 0; /* Changed from right to left */
-    width: 300px; /* Fixed width so it's visible for debugging */
+    left: 0;
+    width: 300px;
     height: 100%;
-    pointer-events: all; /* Enable pointer events for debugging */
+    pointer-events: none; /* Allow mouse events to pass through to the editor */
     z-index: 10;
-    background-color: rgba(0, 0, 0, 0.03); /* Subtle background for debugging */
 }
 
 /* SVG elements for tree visualization */
 .discourse-tree-svg {
     background: var(--background-primary-alt);
-    border-right: 1px solid var(--background-modifier-border); /* Changed from border-left to border-right */
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1); /* Changed shadow direction */
-    border-radius: 0 4px 4px 0; /* Changed border radius to match right side */
+    border-right: 1px solid var(--background-modifier-border);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+    border-radius: 0 4px 4px 0;
     overflow: visible;
-    pointer-events: all;
+    pointer-events: none; /* Allow mouse events to pass through */
 }
 
-/* Tree nodes */
+/* Make specific parts of the tree clickable if needed */
 .tree-node circle {
     fill: var(--text-accent);
     stroke: var(--background-primary);
     stroke-width: 1.5px;
+    pointer-events: all; /* Make just the nodes clickable */
+    cursor: pointer;
 }
 
 .tree-node:hover circle {
@@ -57,6 +63,28 @@
     font-family: var(--font-text);
     fill: var(--text-normal);
     font-size: 12px;
+    pointer-events: none;
+}
+
+/* Debug mode - only shown during development */
+.debug-mode .discourse-tree-container {
+    border: 1px solid rgba(255, 0, 0, 0.3);
+    background-color: rgba(0, 0, 0, 0.03);
+}
+
+.debug-mode .debug-text {
+    display: block !important;
+}
+
+.debug-text {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 0;
+    background: rgba(255, 0, 0, 0.2);
+    padding: 5px;
+    color: white;
+    font-size: 10px;
     pointer-events: none;
 }
 

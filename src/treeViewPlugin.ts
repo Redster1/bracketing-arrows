@@ -3,7 +3,7 @@
 // Handle margin positioning
 
 import { EditorState, StateEffect } from "@codemirror/state";
-import { EditorView, ViewUpdate, Decoration, DecorationSet, ViewPlugin, WidgetType } from "@codemirror/view";
+import { EditorView, ViewUpdate, Decoration, DecorationSet, ViewPlugin } from "@codemirror/view";
 import { MatchDecoratorAll } from "./matchDecoratorAll";
 import { TreeRenderer, RenderConstraints } from "./treeRenderer";
 import { NodeSyntaxData, TreeData } from './types';
@@ -16,8 +16,9 @@ import { getTreeConfigFromView } from './treeConfig';
 const nodeSyntaxRegex = /{([^{}|]+)\|([^{}|]+)(?:\|([^{}]*))?}/g;
 
 // Constants for CSS classes
-const NODE_SYNTAX_CLASS = "discourse-tree-node-syntax";
+const NODE_SYNTAX_CLASS = "tree-node-syntax";
 const TREE_CONTAINER_CLASS = "discourse-tree-container";
+const DEBUG_TEXT_CLASS = "debug-text";
 
 // Add console logging to help debug
 function debug(message: string, ...data: any[]) {
@@ -26,6 +27,7 @@ function debug(message: string, ...data: any[]) {
 
 /**
  * MatchDecorator for finding node syntax in the document
+ * Now using mark decorations to ensure text remains editable
  */
 const nodeSyntaxHighlighter = new MatchDecoratorAll({
     regexp: nodeSyntaxRegex,
@@ -43,9 +45,16 @@ const nodeSyntaxHighlighter = new MatchDecoratorAll({
             });
         }
         
+        // Using mark decoration instead of replace to keep text editable
         return Decoration.mark({
             tagName: "span",
             class: NODE_SYNTAX_CLASS,
+            attributes: {
+                "data-node-id": nodeSyntaxData.id,
+                "data-parent-id": nodeSyntaxData.parentId,
+                "data-label": nodeSyntaxData.label || "",
+                "title": `Node: ${nodeSyntaxData.id}\nParent: ${nodeSyntaxData.parentId}\nLabel: ${nodeSyntaxData.label || ""}`
+            },
             nodeSyntaxData
         });
     }
@@ -63,9 +72,15 @@ export class TreeViewPlugin {
     nodeSyntaxRanges: DecorationSet;
     trees: TreeData[];
     decorations: DecorationSet;
+    isDebugMode: boolean;
 
     constructor(view: EditorView) {
         debug("Initializing TreeViewPlugin");
+        
+        // Check for debug mode via URL parameter or localStorage
+        this.isDebugMode = window.location.search.includes('debug=true') || 
+                           localStorage.getItem('1bracket-debug') === 'true';
+        
         // Create a container to hold the trees
         this.createContainer(view);
         this.treeRenderer = new TreeRenderer(view, this.container);
@@ -76,24 +91,19 @@ export class TreeViewPlugin {
         debug("Creating container for trees");
         const container = document.createElement("div");
         container.classList.add(TREE_CONTAINER_CLASS);
+        
+        // Add debug class if in debug mode
+        if (this.isDebugMode) {
+            container.classList.add('debug-mode');
+        }
+        
         view.scrollDOM.prepend(container);
         this.container = container;
         
-        // Add debugging info to make sure container is created
-        container.style.border = "1px solid red";
-        container.style.zIndex = "9999";
-        
-        // Add a debug text node
+        // Add a debug text node that's only visible in debug mode
         const debugText = document.createElement("div");
         debugText.textContent = "1Bracket container";
-        debugText.style.position = "absolute";
-        debugText.style.left = "0"; // Changed from right to left
-        debugText.style.top = "0";
-        debugText.style.background = "rgba(255,0,0,0.2)";
-        debugText.style.padding = "5px";
-        debugText.style.color = "white";
-        debugText.style.fontSize = "10px";
-        debugText.style.pointerEvents = "none";
+        debugText.classList.add(DEBUG_TEXT_CLASS);
         container.appendChild(debugText);
     }
 
@@ -128,10 +138,6 @@ export class TreeViewPlugin {
             // Sort trees by position in the document
             this.trees = sortTreesByPosition(this.trees);
             debug("Sorted trees:", this.trees);
-            
-            // Create decorations for node syntax
-            const decos = this.createNodeDecorations(nodeData, view);
-            this.decorations = decos;
 
             // Render all trees
             this.renderTrees(view);
@@ -159,6 +165,7 @@ export class TreeViewPlugin {
 
         // Update tree nodes and rendering
         this.nodeSyntaxRanges = nodeSyntaxHighlighter.updateDeco(update, this.nodeSyntaxRanges);
+        this.decorations = this.nodeSyntaxRanges;
         
         // Skip further processing if there are no document changes
         if (!update.docChanged) {
@@ -173,7 +180,6 @@ export class TreeViewPlugin {
         if (nodeData.length === 0) {
             // If no nodes found, clear everything
             this.trees = [];
-            this.decorations = Decoration.none;
             this.treeRenderer.removeAllTrees();
             debug("No nodes found, cleared trees");
             return;
@@ -192,10 +198,6 @@ export class TreeViewPlugin {
         
         // Sort trees by position in the document
         this.trees = sortTreesByPosition(this.trees);
-        
-        // Create decorations for node syntax
-        const decos = this.createNodeDecorations(nodeData, update.view);
-        this.decorations = decos;
 
         // Wait until widgets have been rendered in the DOM
         setTimeout(() => {
@@ -237,27 +239,6 @@ export class TreeViewPlugin {
         }
 
         return nodeData;
-    }
-
-    /**
-     * Create decorations for node syntax
-     */
-    createNodeDecorations(nodeData: NodeSyntaxData[], view: EditorView): DecorationSet {
-        const decos: any[] = [];
-
-        for (const node of nodeData) {
-            // Create a prettified node widget or a simple marker decoration
-            const deco = Decoration.replace({
-                widget: new PrettifiedNode(node, getTreeConfigFromView(view)),
-                inclusive: false,
-                block: false,
-                nodeSyntaxData: node
-            }).range(node.from, node.to);
-
-            decos.push(deco);
-        }
-
-        return Decoration.set(decos, true);
     }
 
     /**
@@ -355,48 +336,6 @@ export class TreeViewPlugin {
 }
 
 /**
- * Widget for rendering a prettified node in the document
- */
-class PrettifiedNode extends WidgetType {
-    private readonly nodeData: NodeSyntaxData;
-    private readonly settings: any;
-
-    constructor(nodeData: NodeSyntaxData, settings: any) {
-        super();
-        this.nodeData = nodeData;
-        this.settings = settings;
-    }
-
-    eq(other: PrettifiedNode) {
-        return (
-            other.nodeData.id === this.nodeData.id &&
-            other.nodeData.parentId === this.nodeData.parentId &&
-            other.nodeData.label === this.nodeData.label
-        );
-    }
-
-    toDOM() {
-        const span = document.createElement("span");
-        span.style.color = this.settings.defaultNodeColor;
-        span.className = "tree-node-syntax";
-        span.setAttribute('data-node-id', this.nodeData.id);
-        span.setAttribute('data-parent-id', this.nodeData.parentId);
-        
-        // Use a symbol to represent the node
-        span.textContent = "⬥"; // Diamond symbol
-        
-        // Add tooltip with node information
-        span.title = `Node: ${this.nodeData.id}\nParent: ${this.nodeData.parentId}\nLabel: ${this.nodeData.label}`;
-        
-        return span;
-    }
-
-    ignoreEvent() {
-        return false;
-    }
-}
-
-/**
  * Create the ViewPlugin instance
  */
 export const treeViewPlugin = ViewPlugin.fromClass(
@@ -405,6 +344,17 @@ export const treeViewPlugin = ViewPlugin.fromClass(
         decorations: v => v.decorations,
         eventHandlers: {
             // Event handlers could be added here for interactivity
+            mousedown: (e, view) => {
+                const target = e.target as HTMLElement;
+                // Check if we're clicking on a tree node circle
+                if (target.tagName.toLowerCase() === 'circle' && target.closest('.tree-node')) {
+                    debug("Tree node clicked", target);
+                    // Could add interaction here
+                    e.preventDefault();
+                    return true;
+                }
+                return false;
+            }
         }
     }
 );
