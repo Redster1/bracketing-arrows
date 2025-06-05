@@ -5,7 +5,6 @@
 
 import { hierarchy, tree, HierarchyNode, HierarchyLink } from 'd3-hierarchy';
 import { select } from 'd3-selection';
-import { linkHorizontal } from 'd3-shape';
 import { TreeNode, TreeData } from './types';
 import { getTreeConfigFromView } from './treeConfig';
 import { EditorView } from '@codemirror/view';
@@ -73,8 +72,8 @@ export class TreeRenderer {
             // Apply the layout to the hierarchy
             const nodes = treeLayout(root);
             
-            // Create links
-            this.renderLinks(g, nodes, settings);
+            // Create links - using tournament bracket style
+            this.renderBracketLinks(g, nodes, settings);
             
             // Create nodes
             this.renderNodes(g, nodes, settings);
@@ -94,22 +93,32 @@ export class TreeRenderer {
     }
     
     /**
-     * Render the connections between nodes
+     * Render the connections between nodes using tournament bracket style
      */
-    private renderLinks(g: SVGGElement, rootNode: HierarchyNode<TreeNode>, settings: any) {
-        // Create a horizontal link generator that handles HierarchyLink correctly
-        const linkGenerator = linkHorizontal<any, any>()
-            .x(d => d.y)  // Note: x and y are swapped for horizontal layout
-            .y(d => d.x);
-        
-        // Select all links and bind data
+    private renderBracketLinks(g: SVGGElement, rootNode: HierarchyNode<TreeNode>, settings: any) {
         rootNode.links().forEach(link => {
+            const source = link.source;
+            const target = link.target;
+            
+            // Calculate the midpoint between source and target for the grid-style link
+            const midX = (source.y + target.y) / 2;
+            
+            // Create the path using straight lines with right angles (bracket style)
+            const pathData = `
+                M ${source.y} ${source.x}
+                L ${midX} ${source.x}
+                L ${midX} ${target.x}
+                L ${target.y} ${target.x}
+            `;
+            
+            // Create the path element
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-            path.setAttribute("d", linkGenerator(link) || "");
+            path.setAttribute("d", pathData);
             path.classList.add("tree-link");
             path.setAttribute("fill", "none");
             path.setAttribute("stroke", settings.defaultNodeColor);
             path.setAttribute("stroke-width", settings.lineWidth.toString());
+            
             g.appendChild(path);
         });
     }

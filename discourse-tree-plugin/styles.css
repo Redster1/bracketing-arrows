@@ -30,10 +30,7 @@
 
 /* SVG elements for tree visualization */
 .discourse-tree-svg {
-    background: var(--background-primary-alt);
-    border-right: 1px solid var(--background-modifier-border);
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
-    border-radius: 0 4px 4px 0;
+    background: transparent; /* Changed to transparent background */
     overflow: visible;
     pointer-events: none; /* Allow mouse events to pass through */
 }
