@@ -1,6 +1,6 @@
 import { EditorView } from "@codemirror/view";
 import LeaderLine from "leaderline";
-import { ArrowIdentifierCollection, ArrowIdentifierData, ArrowIdentifierPosData, getStartEndArrowPlugs, fixMarginArrowTrackNo, makeArrowArc, posToOffscreenPosition, OffscreenPosition, ArrowRecord, getElementOffset, arrowRecordsEqual, colorToEffectiveColor } from './utils';
+import { ArrowIdentifierCollection, ArrowIdentifierData, ArrowIdentifierPosData, getStartEndArrowPlugs, fixMarginArrowTrackNo, makeArrowArc, posToOffscreenPosition, OffscreenPosition, ArrowRecord, getElementOffset, arrowRecordsEqual, colorToEffectiveColor, ConnectionPoint } from './utils';
 import * as constants from "./consts";
 import { getArrowConfigFromView } from "./arrowsConfig";
 
@@ -12,12 +12,14 @@ export class ArrowsManager {
     // Use ArrowRecord[] instead of ArrowRecord, because *multiple* long margin arrows may be drawn
     // between the first and last `.cm-line`s
     private arrowCountMap: Map<string, number>; // Track arrow counts between element pairs
+    private junctionPoints: Map<string, HTMLElement>; // Track junction points for hierarchy connections
 
     constructor(view: EditorView, container: HTMLElement) {
         this.view = view;
         this.container = container;
         this.arrows = new Map();
         this.arrowCountMap = new Map();
+        this.junctionPoints = new Map();
     }
 
     // Helper function to create caption labels safely
@@ -50,8 +52,17 @@ export class ArrowsManager {
         
         // Reset arrow count map for each redraw
         this.arrowCountMap.clear();
+        this.junctionPoints.clear();
 
-        for (const arrowIdentifierCollection of arrowIdentifierCollections) {
+        // Sort collections by hierarchy level to ensure parent arrows are drawn first
+        const sortedCollections = [...arrowIdentifierCollections].sort((a, b) => {
+            const aLevel = a.hierarchy?.level || 0;
+            const bLevel = b.hierarchy?.level || 0;
+            return aLevel - bLevel;
+        });
+
+        // First pass: Draw all regular arrows
+        for (const arrowIdentifierCollection of sortedCollections) {
             const start = arrowIdentifierCollection.start;
             if (!start) continue;
             const startOffscreen = posToOffscreenPosition(view, start.from);
@@ -71,22 +82,30 @@ export class ArrowsManager {
 
                 if (arrowAlreadyExistsIndex != -1) {
                     // Remove the arrowRecord from oldArrows and transfer it to newArrows
-
                     const removed = this.removeRecordFromMap(oldArrows, endEl, arrowAlreadyExistsIndex);
-                    if (removed)
+                    if (removed) {
+                        // Update the hierarchy info
+                        removed.hierarchy = arrowIdentifierCollection.hierarchy;
                         this.addRecordToMap(newArrows, endEl, removed);
+                    }
                 }
                 else {
                     // Draw an arrow between startEl and endEl
-
-                    // LeaderLine may fail to draw an arrow and throw an error
                     try {
                         const line = this.drawArrow(startEl, endEl, start.arrowData, end.arrowData, startOffscreen, endOffscreen);
                         if (!line) continue;
 
                         const record = this.getArrowRecord(line, startEl, endEl, start.arrowData, end.arrowData, startOffscreen, endOffscreen);
-
+                        
+                        // Add hierarchy information to the record
+                        record.hierarchy = arrowIdentifierCollection.hierarchy;
+                        
                         this.addRecordToMap(newArrows, endEl, record);
+                        
+                        // Store junction points for hierarchy connections
+                        if (arrowIdentifierCollection.hierarchy?.isJunction) {
+                            this.junctionPoints.set(arrowIdentifierCollection.identifier, startEl);
+                        }
                     }
                     catch (e) {
                         // console.log("Error drawing the arrow.");
@@ -96,9 +115,82 @@ export class ArrowsManager {
             }
         }
 
+        // Second pass: Draw connections between hierarchical arrows
+        for (const arrowIdentifierCollection of sortedCollections) {
+            if (!arrowIdentifierCollection.hierarchy?.parentId) continue;
+            
+            const parentId = arrowIdentifierCollection.hierarchy.parentId;
+            const parentEl = this.junctionPoints.get(parentId);
+            
+            if (!parentEl || !arrowIdentifierCollection.start) continue;
+            
+            const childEl = this.arrowIdentifierPosDataToDomElement(arrowIdentifierCollection.start);
+            if (!(childEl instanceof HTMLElement)) continue;
+            
+            // Draw connection line based on the connection point
+            this.drawHierarchyConnection(
+                parentEl, 
+                childEl, 
+                arrowIdentifierCollection.hierarchy.connectionPoint || ConnectionPoint.MIDDLE,
+                arrowIdentifierCollection.start.arrowData.color
+            );
+        }
+
         // Remove old arrows
         this.removeAllArrows(oldArrows);
         this.arrows = newArrows;
+    }
+    
+    // Draw a connection between a parent and child arrow in the hierarchy
+    private drawHierarchyConnection(
+        parentEl: HTMLElement, 
+        childEl: HTMLElement,
+        connectionPoint: ConnectionPoint,
+        color?: string
+    ) {
+        const effectiveColor = colorToEffectiveColor(color, getArrowConfigFromView(this.view));
+        
+        // Calculate the appropriate connection points based on the specified connection point
+        const parentAnchor = this.getConnectionAnchor(parentEl, connectionPoint);
+        const childAnchor = LeaderLine.PointAnchor(childEl, {x: -constants.MARGIN_ARROW_X_OFFSET - 5, y: childEl.offsetTop + (childEl.offsetHeight / 2)});
+        
+        // @ts-ignore
+        const line = new LeaderLine({
+            parent: this.container,
+            start: parentAnchor,
+            end: childAnchor,
+            color: effectiveColor,
+            size: constants.ARROW_SIZE * 0.75, // Slightly thinner than regular arrows
+            startPlug: 'behind',
+            endPlug: 'behind',
+            path: 'straight'
+        });
+        
+        // No need to track these connections in the arrows map since they're
+        // automatically redrawn when the parent arrows are redrawn
+        
+        return line;
+    }
+    
+    // Get the appropriate anchor point based on the connection point type
+    private getConnectionAnchor(el: HTMLElement, connectionPoint: ConnectionPoint) {
+        const x = -constants.MARGIN_ARROW_X_OFFSET - 20; // Offset from the margin
+        let y;
+        
+        switch (connectionPoint) {
+            case ConnectionPoint.TOP:
+                y = el.offsetTop;
+                break;
+            case ConnectionPoint.BOTTOM:
+                y = el.offsetTop + el.offsetHeight;
+                break;
+            case ConnectionPoint.MIDDLE:
+            default:
+                y = el.offsetTop + (el.offsetHeight / 2);
+                break;
+        }
+        
+        return LeaderLine.PointAnchor(el, {x, y});
     }
 
     addRecordToMap(map: Map<HTMLElement, ArrowRecord[]>, endEl:HTMLElement, record: ArrowRecord) {
@@ -375,7 +467,8 @@ export class ArrowsManager {
         }
 
         return {
-            startAnchor: LeaderLine.PointAnchor(s, {x: -constants.MARGIN_ARROW_X_OFFSET, y: sy}), endAnchor: LeaderLine.PointAnchor(e, {x: -constants.MARGIN_ARROW_X_OFFSET, y: ey})
+            startAnchor: LeaderLine.PointAnchor(s, {x: -constants.MARGIN_ARROW_X_OFFSET, y: sy}), 
+            endAnchor: LeaderLine.PointAnchor(e, {x: -constants.MARGIN_ARROW_X_OFFSET, y: ey})
         };
     }
 

@@ -6,6 +6,21 @@ import { Workspace, MarkdownView } from "obsidian";
 import { ARROW, MARGIN, NOARROW, DISC, arrowTypes, arrowPlugTypes } from "./consts";
 import { ArrowsPluginSettings } from "./settings";
 
+// Hierarchy connection points - where a child arrow can connect to its parent
+export enum ConnectionPoint {
+    TOP = "top",
+    MIDDLE = "middle",
+    BOTTOM = "bottom"
+}
+
+export interface HierarchyInfo {
+    level: number;           // Depth in the hierarchy (0 = root)
+    parentId?: string;       // Identifier of parent arrow
+    childIds: string[];      // Identifiers of child arrows
+    connectionPoint?: ConnectionPoint; // Where this arrow connects to its parent
+    isJunction: boolean;     // Whether this arrow is a junction point
+}
+
 export interface ArrowIdentifierData {
     identifier: string,
     arrowSource: string,
@@ -27,7 +42,8 @@ export interface ArrowIdentifierPosData {
 export interface ArrowIdentifierCollection {
     identifier: string,
     start?: ArrowIdentifierPosData,
-    ends: ArrowIdentifierPosData[]
+    ends: ArrowIdentifierPosData[],
+    hierarchy?: HierarchyInfo  // Hierarchy information for this arrow
 }
 
 export interface ArrowRecord {
@@ -40,6 +56,7 @@ export interface ArrowRecord {
     endOffscreen: OffscreenPosition;
     startElPos: OffsetPosition;
     endElPos: OffsetPosition;
+    hierarchy?: HierarchyInfo;  // Hierarchy information for this arrow
 }
 
 export interface OffsetPosition {
@@ -349,6 +366,16 @@ function arrowIdentifierDataEqual(a: ArrowIdentifierData, b: ArrowIdentifierData
 }
 
 export function arrowRecordsEqual(a: ArrowRecord, b: ArrowRecord) {
+    // Check if hierarchy info matches
+    const hierarchyEqual = 
+        (!a.hierarchy && !b.hierarchy) || 
+        (a.hierarchy && b.hierarchy && 
+            a.hierarchy.level === b.hierarchy.level &&
+            a.hierarchy.parentId === b.hierarchy.parentId &&
+            a.hierarchy.isJunction === b.hierarchy.isJunction &&
+            a.hierarchy.connectionPoint === b.hierarchy.connectionPoint &&
+            arraysEqual(a.hierarchy.childIds, b.hierarchy.childIds));
+    
     return (a.startEl === b.startEl
         && a.endEl === b.endEl
         && arrowIdentifierDataEqual(a.startArrowData, b.startArrowData)
@@ -356,7 +383,16 @@ export function arrowRecordsEqual(a: ArrowRecord, b: ArrowRecord) {
         && a.startOffscreen == b.startOffscreen
         && a.endOffscreen == b.endOffscreen
         && offsetPositionsEqual(a.startElPos, b.startElPos)
-        && offsetPositionsEqual(a.endElPos, b.endElPos));
+        && offsetPositionsEqual(a.endElPos, b.endElPos)
+        && hierarchyEqual);
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+    }
+    return true;
 }
 
 export function iterateCM6(workspace: Workspace, callback: (editor: EditorView) => unknown) {
@@ -365,4 +401,116 @@ export function iterateCM6(workspace: Workspace, callback: (editor: EditorView) 
         (leaf.view.editor as any)?.cm instanceof EditorView &&
         callback((leaf.view.editor as any).cm);
     });
+}
+
+// Function to detect and build arrow hierarchies based on spatial relationships
+export function buildArrowHierarchy(arrowIdentifierCollections: ArrowIdentifierCollection[]): ArrowIdentifierCollection[] {
+    // Clone the collections to avoid modifying the original
+    const collections = JSON.parse(JSON.stringify(arrowIdentifierCollections)) as ArrowIdentifierCollection[];
+    
+    // Initialize hierarchy info for all collections
+    collections.forEach(collection => {
+        collection.hierarchy = {
+            level: 0,
+            childIds: [],
+            isJunction: false
+        };
+    });
+    
+    // Sort collections by vertical position (top to bottom)
+    collections.sort((a, b) => {
+        const aPos = a.start?.from || 0;
+        const bPos = b.start?.from || 0;
+        return aPos - bPos;
+    });
+    
+    // Detect parent-child relationships based on proximity and alignment
+    for (let i = 0; i < collections.length; i++) {
+        const current = collections[i];
+        
+        // Look for potential parent arrows that are above the current one
+        for (let j = 0; j < i; j++) {
+            const potential = collections[j];
+            
+            // Skip if already has a parent or if the potential parent already has this as a child
+            if (current.hierarchy?.parentId || potential.hierarchy?.childIds.includes(current.identifier)) {
+                continue;
+            }
+            
+            // Check if the arrows are aligned for a hierarchy
+            if (areArrowsAligned(current, potential)) {
+                // Establish parent-child relationship
+                current.hierarchy!.parentId = potential.identifier;
+                current.hierarchy!.level = potential.hierarchy!.level + 1;
+                
+                // Determine connection point (top, middle, bottom)
+                current.hierarchy!.connectionPoint = determineConnectionPoint(current, potential);
+                
+                // Add current arrow as child of the parent
+                potential.hierarchy!.childIds.push(current.identifier);
+                
+                // If parent now has multiple children, mark it as a junction
+                if (potential.hierarchy!.childIds.length > 1) {
+                    potential.hierarchy!.isJunction = true;
+                }
+                
+                break; // Found a parent, stop looking
+            }
+        }
+    }
+    
+    return collections;
+}
+
+// Helper function to determine if two arrows should be aligned in a hierarchy
+function areArrowsAligned(child: ArrowIdentifierCollection, parent: ArrowIdentifierCollection): boolean {
+    // This is a simplified version - in a real implementation, you'd need more
+    // sophisticated spatial analysis
+    
+    // For this example, we'll consider arrows aligned if:
+    // 1. They have the same track value or
+    // 2. Their tracks are within a certain proximity
+    
+    if (!child.start || !parent.start) return false;
+    
+    const childTrack = child.start.arrowData.track || 0;
+    const parentTrack = parent.start.arrowData.track || 0;
+    
+    // Consider aligned if track difference is small
+    const trackDifference = Math.abs(childTrack - parentTrack);
+    return trackDifference <= 5; // arbitrary threshold
+}
+
+// Helper function to determine where a child arrow connects to its parent
+function determineConnectionPoint(child: ArrowIdentifierCollection, parent: ArrowIdentifierCollection): ConnectionPoint {
+    if (!child.start || !parent.start) return ConnectionPoint.MIDDLE;
+    
+    // Get vertical positions of the parent's end points
+    const parentEnds = parent.ends;
+    if (parentEnds.length === 0) return ConnectionPoint.MIDDLE;
+    
+    // Sort parent ends by position
+    const sortedEnds = [...parentEnds].sort((a, b) => a.from - b.from);
+    
+    // If parent has only one end, connect to the middle
+    if (sortedEnds.length === 1) return ConnectionPoint.MIDDLE;
+    
+    // Determine relative position of child to parent's ends
+    const childPos = child.start.from;
+    const firstEndPos = sortedEnds[0].from;
+    const lastEndPos = sortedEnds[sortedEnds.length - 1].from;
+    
+    // Calculate positions for top third, middle third, bottom third
+    const totalRange = lastEndPos - firstEndPos;
+    const firstThird = firstEndPos + totalRange * 0.33;
+    const secondThird = firstEndPos + totalRange * 0.66;
+    
+    // Determine connection point based on position
+    if (childPos < firstThird) {
+        return ConnectionPoint.TOP;
+    } else if (childPos < secondThird) {
+        return ConnectionPoint.MIDDLE;
+    } else {
+        return ConnectionPoint.BOTTOM;
+    }
 }
