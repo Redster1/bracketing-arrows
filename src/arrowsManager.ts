@@ -384,7 +384,7 @@ export class ArrowsManager {
     }
 
     getArrowRecord(line:LeaderLine, startEl: HTMLElement, endEl: HTMLElement, startArrowData: ArrowIdentifierData, endArrowData: ArrowIdentifierData, startOffscreen: OffscreenPosition, endOffscreen: OffscreenPosition) {
-        const arrowRecord = {
+        const arrowRecord: ArrowRecord = {
             line: line,
             startEl: startEl,
             endEl: endEl,
