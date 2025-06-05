@@ -1,52 +1,58 @@
 import { Plugin } from 'obsidian';
 import { Extension } from '@codemirror/state';
-import { ArrowsSettingTab, ArrowsPluginSettings, DEFAULT_SETTINGS } from "./settings";
-import { arrowsViewPlugin, refreshAllArrows } from "./arrowsViewPlugin";
-import { getArrowsConfigExtension, reconfigureArrowsConfig } from './arrowsConfig';
+import { DiscourseTreeSettingTab, DiscourseTreeSettings, DEFAULT_SETTINGS } from "./settings";
+import { treeViewPlugin, refreshAllTrees } from "./treeViewPlugin";
+import { treeConfig, treeConfigCompartment } from './treeConfig';
 import { iterateCM6 } from './utils';
 
-export default class ArrowsPlugin extends Plugin {
-	settings: ArrowsPluginSettings;
-	extensions: Extension[];
-	userDefinedColorsDict: {[colorName: string]: string};
+export default class DiscourseTreePlugin extends Plugin {
+    settings: DiscourseTreeSettings;
+    extensions: Extension[];
+    userDefinedColorsDict: {[colorName: string]: string};
 
-	async onload() {
-		await this.loadSettings();
-		this.addSettingTab(new ArrowsSettingTab(this.app, this));
+    async onload() {
+        await this.loadSettings();
+        this.addSettingTab(new DiscourseTreeSettingTab(this.app, this));
 
-		this.extensions = [
-			getArrowsConfigExtension(this.settings),
-			arrowsViewPlugin.extension
-		];
-		this.registerEditorExtension(this.extensions);
-	}
+        // Add CSS classes for tree visualization
+        document.body.classList.add('discourse-tree-plugin-enabled');
 
-	onunload() {
-		const leaderLineDefs = document.getElementById("leader-line-defs");
-		if (leaderLineDefs) leaderLineDefs.remove();
-	}
+        // Initialize extensions
+        this.extensions = [
+            treeConfigCompartment.of(treeConfig.of(this.settings)),
+            treeViewPlugin.extension
+        ];
+        
+        // Register editor extensions
+        this.registerEditorExtension(this.extensions);
+    }
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
+    onunload() {
+        // Remove CSS classes
+        document.body.classList.remove('discourse-tree-plugin-enabled');
+    }
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+    async loadSettings() {
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    }
 
-	reconfigureArrowsConfig() {
-		iterateCM6(this.app.workspace, (view) => {
-			view.dispatch({
-				effects: reconfigureArrowsConfig(this.settings)
-			});
-		})
-	}
+    async saveSettings() {
+        await this.saveData(this.settings);
+    }
 
-	reloadArrowsViewPlugin() {
-		iterateCM6(this.app.workspace, (view) => {
-			view.dispatch({
-				effects: refreshAllArrows.of(null)
-			});
-		})
-	}
+    reconfigureTreeConfig() {
+        iterateCM6(this.app.workspace, (view) => {
+            view.dispatch({
+                effects: treeConfigCompartment.reconfigure(treeConfig.of(this.settings))
+            });
+        });
+    }
+
+    reloadTreeViewPlugin() {
+        iterateCM6(this.app.workspace, (view) => {
+            view.dispatch({
+                effects: refreshAllTrees.of(null)
+            });
+        });
+    }
 }
