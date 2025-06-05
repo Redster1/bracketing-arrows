@@ -87,7 +87,7 @@ export class TreeViewPlugin {
         const debugText = document.createElement("div");
         debugText.textContent = "1Bracket container";
         debugText.style.position = "absolute";
-        debugText.style.right = "0";
+        debugText.style.left = "0"; // Changed from right to left
         debugText.style.top = "0";
         debugText.style.background = "rgba(255,0,0,0.2)";
         debugText.style.padding = "5px";

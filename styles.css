@@ -16,7 +16,7 @@
 .discourse-tree-container {
     position: absolute;
     top: 0;
-    right: 0;
+    left: 0; /* Changed from right to left */
     width: 300px; /* Fixed width so it's visible for debugging */
     height: 100%;
     pointer-events: all; /* Enable pointer events for debugging */
@@ -27,9 +27,9 @@
 /* SVG elements for tree visualization */
 .discourse-tree-svg {
     background: var(--background-primary-alt);
-    border-left: 1px solid var(--background-modifier-border);
-    box-shadow: -2px 0 8px rgba(0, 0, 0, 0.1);
-    border-radius: 4px 0 0 4px;
+    border-right: 1px solid var(--background-modifier-border); /* Changed from border-left to border-right */
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1); /* Changed shadow direction */
+    border-radius: 0 4px 4px 0; /* Changed border radius to match right side */
     overflow: visible;
     pointer-events: all;
 }

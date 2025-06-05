@@ -64,7 +64,7 @@ export class TreeRenderer {
         // Create a D3 hierarchy from the tree data
         const root = hierarchy(treeData.root) as HierarchyNode<TreeNode>;
         
-        // Create a tree layout
+        // Create a tree layout - using flipped coordinates for left-to-right orientation
         const treeLayout = tree<TreeNode>()
             .size([innerHeight, innerWidth]);  // Note: swapped for horizontal layout
         
@@ -123,8 +123,11 @@ export class TreeRenderer {
             if (node.data.label) {
                 const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
                 text.setAttribute("dy", "0.31em");
-                text.setAttribute("x", node.children ? "-8" : "8");
-                text.setAttribute("text-anchor", node.children ? "end" : "start");
+                
+                // Position labels to the right of nodes for left-to-right tree
+                text.setAttribute("x", "8");
+                text.setAttribute("text-anchor", "start");
+                
                 text.setAttribute("font-size", `${settings.nodeFontSize}px`);
                 text.setAttribute("fill", settings.defaultNodeColor);
                 text.textContent = node.data.label;
@@ -145,11 +148,14 @@ export class TreeRenderer {
         // Position the SVG at the correct document position
         svg.style.position = "absolute";
         svg.style.top = `${pos.top}px`;
-        svg.style.right = "0";
+        svg.style.left = "0"; // Changed from right to left
         svg.classList.add("discourse-tree-svg");
         
         // Add the SVG to the container
         this.container.appendChild(svg);
+        
+        // Debug message for positioning
+        console.log(`[1Bracket] Positioned tree at top: ${pos.top}px, left: 0`);
     }
     
     /**
