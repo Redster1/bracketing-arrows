@@ -85,10 +85,10 @@ export class TreeRenderer {
             // Align leaf nodes to the same X position
             this.alignLeafNodes(nodes, isVertical);
             
-            // Create links - using tournament bracket style
+            // First create links (lower z-index)
             this.renderBracketLinks(g, nodes, settings, isVertical);
             
-            // Create nodes
+            // Then create nodes (higher z-index)
             this.renderNodes(g, nodes, settings, isVertical);
         } catch (error) {
             console.error("[1Bracket] Error rendering tree:", error);
@@ -195,10 +195,16 @@ export class TreeRenderer {
                     text.setAttribute("text-anchor", "start");
                 }
                 
-                text.setAttribute("font-size", `${settings.nodeFontSize}px`);
-                text.setAttribute("fill", settings.defaultNodeColor);
-                text.textContent = node.data.label;
-                nodeGroup.appendChild(text);
+                // Create a background rectangle for the text (optional)
+                if (node.data.label && node.data.label.trim() !== "") {
+                    // Add a transparent background rectangle to ensure text is readable
+                    text.setAttribute("font-size", `${settings.nodeFontSize}px`);
+                    text.setAttribute("fill", settings.defaultNodeColor);
+                    text.textContent = node.data.label;
+                    
+                    // Add a higher z-index to ensure text is above lines
+                    nodeGroup.appendChild(text);
+                }
             }
             
             g.appendChild(nodeGroup);

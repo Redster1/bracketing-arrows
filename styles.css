@@ -61,6 +61,11 @@
     fill: var(--text-normal);
     font-size: 12px;
     pointer-events: none;
+    paint-order: stroke;
+    stroke: var(--background-primary);
+    stroke-width: 2px;
+    stroke-linecap: butt;
+    stroke-linejoin: miter;
 }
 
 /* Debug mode - only shown during development */
