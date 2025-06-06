@@ -65,18 +65,31 @@ export class TreeRenderer {
             // Create a D3 hierarchy from the tree data
             const root = hierarchy(treeData.root) as HierarchyNode<TreeNode>;
             
-            // Create a tree layout - using flipped coordinates for left-to-right orientation
-            const treeLayout = tree<TreeNode>()
-                .size([innerHeight, innerWidth]);  // Note: swapped for horizontal layout
+            // Check orientation from settings
+            const isVertical = settings.treeOrientation === "vertical";
+            
+            // Create a tree layout based on orientation
+            const treeLayout = tree<TreeNode>();
+            
+            if (isVertical) {
+                // Top-down orientation (vertical)
+                treeLayout.size([innerWidth, innerHeight]); 
+            } else {
+                // Left-to-right orientation (horizontal)
+                treeLayout.size([innerHeight, innerWidth]);
+            }
             
             // Apply the layout to the hierarchy
             const nodes = treeLayout(root);
             
+            // Align leaf nodes to the same X position
+            this.alignLeafNodes(nodes, isVertical);
+            
             // Create links - using tournament bracket style
-            this.renderBracketLinks(g, nodes, settings);
+            this.renderBracketLinks(g, nodes, settings, isVertical);
             
             // Create nodes
-            this.renderNodes(g, nodes, settings);
+            this.renderNodes(g, nodes, settings, isVertical);
         } catch (error) {
             console.error("[1Bracket] Error rendering tree:", error);
             // Create a simple error message in the SVG
@@ -95,21 +108,38 @@ export class TreeRenderer {
     /**
      * Render the connections between nodes using tournament bracket style
      */
-    private renderBracketLinks(g: SVGGElement, rootNode: HierarchyNode<TreeNode>, settings: any) {
+    private renderBracketLinks(g: SVGGElement, rootNode: HierarchyNode<TreeNode>, settings: any, isVertical = false) {
         rootNode.links().forEach(link => {
             const source = link.source;
             const target = link.target;
             
-            // Calculate the midpoint between source and target for the grid-style link
-            const midX = (source.y + target.y) / 2;
+            let pathData = "";
             
-            // Create the path using straight lines with right angles (bracket style)
-            const pathData = `
-                M ${source.y} ${source.x}
-                L ${midX} ${source.x}
-                L ${midX} ${target.x}
-                L ${target.y} ${target.x}
-            `;
+            if (isVertical) {
+                // Top-down orientation - vertical links
+                // Calculate the midpoint between source and target for the grid-style link
+                const midY = ((source.y || 0) + (target.y || 0)) / 2;
+                
+                // Create the path using straight lines with right angles (bracket style)
+                pathData = `
+                    M ${source.x} ${source.y}
+                    L ${source.x} ${midY}
+                    L ${target.x} ${midY}
+                    L ${target.x} ${target.y}
+                `;
+            } else {
+                // Left-to-right orientation - horizontal links
+                // Calculate the midpoint between source and target for the grid-style link
+                const midX = ((source.y || 0) + (target.y || 0)) / 2;
+                
+                // Create the path using straight lines with right angles (bracket style)
+                pathData = `
+                    M ${source.y} ${source.x}
+                    L ${midX} ${source.x}
+                    L ${midX} ${target.x}
+                    L ${target.y} ${target.x}
+                `;
+            }
             
             // Create the path element
             const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -126,11 +156,20 @@ export class TreeRenderer {
     /**
      * Render the tree nodes and their labels
      */
-    private renderNodes(g: SVGGElement, rootNode: HierarchyNode<TreeNode>, settings: any) {
+    private renderNodes(g: SVGGElement, rootNode: HierarchyNode<TreeNode>, settings: any, isVertical = false) {
         // For each node in the hierarchy
         rootNode.descendants().forEach(node => {
             const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
-            nodeGroup.setAttribute("transform", `translate(${node.y},${node.x})`);
+            
+            // Position based on orientation
+            if (isVertical) {
+                // Top-down orientation
+                nodeGroup.setAttribute("transform", `translate(${node.x},${node.y})`);
+            } else {
+                // Left-to-right orientation
+                nodeGroup.setAttribute("transform", `translate(${node.y},${node.x})`);
+            }
+            
             nodeGroup.classList.add("tree-node");
             nodeGroup.setAttribute("data-node-id", node.data.id);
             
@@ -145,9 +184,16 @@ export class TreeRenderer {
                 const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
                 text.setAttribute("dy", "0.31em");
                 
-                // Position labels to the right of nodes for left-to-right tree
-                text.setAttribute("x", "8");
-                text.setAttribute("text-anchor", "start");
+                if (isVertical) {
+                    // Position labels below nodes for top-down tree
+                    text.setAttribute("y", "15");
+                    text.setAttribute("x", "0");
+                    text.setAttribute("text-anchor", "middle");
+                } else {
+                    // Position labels to the right of nodes for left-to-right tree
+                    text.setAttribute("x", "8");
+                    text.setAttribute("text-anchor", "start");
+                }
                 
                 text.setAttribute("font-size", `${settings.nodeFontSize}px`);
                 text.setAttribute("fill", settings.defaultNodeColor);
@@ -186,5 +232,44 @@ export class TreeRenderer {
     removeAllTrees() {
         const trees = this.container.querySelectorAll(".discourse-tree-svg");
         trees.forEach(tree => tree.remove());
+    }
+    
+    /**
+     * Aligns all leaf nodes to the same position on the X-axis (or Y-axis in vertical mode)
+     */
+    private alignLeafNodes(root: HierarchyNode<TreeNode>, isVertical: boolean) {
+        // Find all leaf nodes (nodes without children)
+        const leafNodes: HierarchyNode<TreeNode>[] = [];
+        
+        // Function to recursively find leaf nodes
+        const findLeafNodes = (node: HierarchyNode<TreeNode>) => {
+            if (!node.children || node.children.length === 0) {
+                leafNodes.push(node);
+            } else {
+                for (const child of node.children) {
+                    findLeafNodes(child);
+                }
+            }
+        };
+        
+        // Start the recursive search from the root
+        findLeafNodes(root);
+        
+        // If no leaf nodes found, nothing to do
+        if (leafNodes.length === 0) return;
+        
+        if (isVertical) {
+            // For vertical orientation, align Y positions
+            const maxY = Math.max(...leafNodes.map(node => node.y || 0));
+            leafNodes.forEach(node => {
+                node.y = maxY;
+            });
+        } else {
+            // For horizontal orientation, align X positions (stored in y in horizontal layout)
+            const maxX = Math.max(...leafNodes.map(node => node.y || 0));
+            leafNodes.forEach(node => {
+                node.y = maxX;
+            });
+        }
     }
 }

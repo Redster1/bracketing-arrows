@@ -13,7 +13,7 @@ export const nodeRegex = /{([^{}|]+)\|([^{}|]+)(?:\|([^{}]*))?}/;
 /**
  * Parse the node syntax from text to create a NodeSyntaxData object
  */
-export function parseNodeSyntax(nodeText: string, from: number, to: number): NodeSyntaxData | null {
+export function parseNodeSyntax(nodeText: string, from: number, to: number, paragraphStart?: number, paragraphEnd?: number): NodeSyntaxData | null {
     // We're debugging, so log the nodeText
     console.log(`[1Bracket] Parsing node syntax: "${nodeText}"`);
     
@@ -35,7 +35,9 @@ export function parseNodeSyntax(nodeText: string, from: number, to: number): Nod
         parentId: parentId.trim(),
         label: label ? label.trim() : "",
         from,
-        to
+        to,
+        paragraphStart,
+        paragraphEnd
     };
     
     console.log(`[1Bracket] Parsed node:`, result);
@@ -52,8 +54,11 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     const rootNodes: TreeNode[] = [];
     const trees: TreeData[] = [];
     
+    // Sort nodes by their document position to ensure consistent ordering
+    const sortedNodes = [...nodeCollection.nodes].sort((a, b) => a.from - b.from);
+    
     // First pass - create TreeNode objects for each node and organize by ID
-    for (const node of nodeCollection.nodes) {
+    for (const node of sortedNodes) {
         const treeNode: TreeNode = {
             id: node.id,
             parentId: node.parentId === "root" ? undefined : node.parentId,
@@ -68,7 +73,7 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     console.log(`[1Bracket] Created nodes by ID:`, Array.from(nodesById.entries()));
     
     // Second pass - build the tree structure by connecting parents and children
-    for (const node of nodeCollection.nodes) {
+    for (const node of sortedNodes) {
         const treeNode = nodesById.get(node.id);
         if (!treeNode) continue;
         
@@ -102,7 +107,9 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
         if (root) {
             const treeData = {
                 root,
-                position: root.position || 0
+                position: root.position || 0,
+                paragraphStart: nodeCollection.paragraphStart,
+                paragraphEnd: nodeCollection.paragraphEnd
             };
             trees.push(treeData);
             console.log(`[1Bracket] Created tree with root node:`, root);
@@ -111,6 +118,53 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     
     console.log(`[1Bracket] Returning ${trees.length} trees`);
     return trees;
+}
+
+/**
+ * Group nodes by paragraph
+ * This identifies separate trees based on paragraph boundaries
+ */
+export function groupNodesByParagraph(nodes: NodeSyntaxData[]): NodeCollection[] {
+    console.log(`[1Bracket] Grouping ${nodes.length} nodes by paragraph`);
+    
+    const collections: NodeCollection[] = [];
+    const paragraphGroups = new Map<string, NodeSyntaxData[]>();
+    
+    // Group nodes by their paragraph boundaries
+    for (const node of nodes) {
+        if (!node.paragraphStart || !node.paragraphEnd) {
+            console.log(`[1Bracket] Node missing paragraph boundaries, skipping:`, node);
+            continue;
+        }
+        
+        const paragraphKey = `${node.paragraphStart}-${node.paragraphEnd}`;
+        if (!paragraphGroups.has(paragraphKey)) {
+            paragraphGroups.set(paragraphKey, []);
+        }
+        
+        paragraphGroups.get(paragraphKey)?.push(node);
+    }
+    
+    // Create a collection for each paragraph
+    for (const [key, paragraphNodes] of paragraphGroups.entries()) {
+        if (paragraphNodes.length > 0) {
+            // All nodes in this group have the same paragraph boundaries
+            const paragraphStart = paragraphNodes[0].paragraphStart;
+            const paragraphEnd = paragraphNodes[0].paragraphEnd;
+            
+            const collection = { 
+                nodes: paragraphNodes,
+                paragraphStart,
+                paragraphEnd
+            };
+            
+            collections.push(collection);
+            console.log(`[1Bracket] Created paragraph node collection with ${paragraphNodes.length} nodes:`, collection);
+        }
+    }
+    
+    console.log(`[1Bracket] Created ${collections.length} paragraph collections`);
+    return collections;
 }
 
 /**
@@ -164,7 +218,16 @@ export function groupNodesByTree(nodes: NodeSyntaxData[]): NodeCollection[] {
         }
         
         if (treeNodes.length > 0) {
-            const collection = { nodes: treeNodes };
+            // Preserve paragraph information if available
+            const paragraphStart = node.paragraphStart;
+            const paragraphEnd = node.paragraphEnd;
+            
+            const collection = { 
+                nodes: treeNodes,
+                paragraphStart,
+                paragraphEnd
+            };
+            
             collections.push(collection);
             console.log(`[1Bracket] Created node collection with ${treeNodes.length} nodes:`, collection);
         }
@@ -180,5 +243,28 @@ export function groupNodesByTree(nodes: NodeSyntaxData[]): NodeCollection[] {
 export function sortTreesByPosition(trees: TreeData[]): TreeData[] {
     const sorted = [...trees].sort((a, b) => a.position - b.position);
     console.log(`[1Bracket] Sorted ${trees.length} trees by position`);
+    
+    // Also sort children in each tree by position
+    for (const tree of sorted) {
+        sortTreeNodeChildren(tree.root);
+    }
+    
     return sorted;
+}
+
+/**
+ * Sorts all children in a tree node by their document position
+ */
+function sortTreeNodeChildren(node: TreeNode) {
+    if (!node.children || node.children.length === 0) {
+        return;
+    }
+    
+    // Sort children by position
+    node.children.sort((a, b) => (a.position || 0) - (b.position || 0));
+    
+    // Sort children of children recursively
+    for (const child of node.children) {
+        sortTreeNodeChildren(child);
+    }
 }

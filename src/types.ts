@@ -15,6 +15,8 @@ export interface TreeNode {
 export interface TreeData {
   root: TreeNode;
   position: number; // Document position of the tree root
+  paragraphStart?: number; // Start position of the containing paragraph
+  paragraphEnd?: number;   // End position of the containing paragraph
 }
 
 export interface NodeSyntaxData {
@@ -23,9 +25,13 @@ export interface NodeSyntaxData {
   label: string;
   from: number;
   to: number;
+  paragraphStart?: number; // Start position of the containing paragraph
+  paragraphEnd?: number;   // End position of the containing paragraph
 }
 
 // Collection of nodes before they're organized into a tree structure
 export interface NodeCollection {
   nodes: NodeSyntaxData[];
+  paragraphStart?: number; // Start position of the paragraph containing these nodes
+  paragraphEnd?: number;   // End position of the paragraph containing these nodes
 }

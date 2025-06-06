@@ -8,8 +8,9 @@ import { MatchDecoratorAll } from "./matchDecoratorAll";
 import { TreeRenderer, RenderConstraints } from "./treeRenderer";
 import { NodeSyntaxData, TreeData } from './types';
 import { rangeWithinExcludedContext } from './utils';
-import { parseNodeSyntax, buildTree, groupNodesByTree, sortTreesByPosition } from './treeParser';
+import { parseNodeSyntax, buildTree, groupNodesByTree, groupNodesByParagraph, sortTreesByPosition } from './treeParser';
 import { getTreeConfigFromView } from './treeConfig';
+import { getParagraphBoundaries } from './utils';
 
 // RegEx for tree node syntax: {node_id|parent_id|label}
 // This must be a global regex for MatchDecoratorAll to work properly
@@ -33,7 +34,18 @@ const nodeSyntaxHighlighter = new MatchDecoratorAll({
     regexp: nodeSyntaxRegex,
     decoration: (match, view, pos) => {
         const nodeText = match[0];  // The full match, including brackets
-        const nodeSyntaxData = parseNodeSyntax(nodeText, pos, pos + nodeText.length);
+        
+        // Get paragraph boundaries for this node
+        const paragraphBounds = getParagraphBoundaries(pos, view.state);
+        
+        // Parse the node syntax with paragraph information
+        const nodeSyntaxData = parseNodeSyntax(
+            nodeText, 
+            pos, 
+            pos + nodeText.length,
+            paragraphBounds.start,
+            paragraphBounds.end
+        );
         
         debug("Found node syntax:", nodeText, "at position:", pos, "parsed data:", nodeSyntaxData);
         
@@ -53,6 +65,8 @@ const nodeSyntaxHighlighter = new MatchDecoratorAll({
                 "data-node-id": nodeSyntaxData.id,
                 "data-parent-id": nodeSyntaxData.parentId,
                 "data-label": nodeSyntaxData.label || "",
+                "data-paragraph-start": String(nodeSyntaxData.paragraphStart || ""),
+                "data-paragraph-end": String(nodeSyntaxData.paragraphEnd || ""),
                 "title": `Node: ${nodeSyntaxData.id}\nParent: ${nodeSyntaxData.parentId}\nLabel: ${nodeSyntaxData.label || ""}`
             },
             nodeSyntaxData
@@ -124,7 +138,12 @@ export class TreeViewPlugin {
                 return;
             }
             
-            const nodeCollections = groupNodesByTree(nodeData);
+            // Get the tree config to check the orientation
+            const settings = getTreeConfigFromView(view);
+            
+            // Always use paragraph-scoped trees for better organization
+            const nodeCollections = groupNodesByParagraph(nodeData);
+                
             debug("Node collections:", nodeCollections);
             
             // Build tree structures from node collections
@@ -185,7 +204,12 @@ export class TreeViewPlugin {
             return;
         }
         
-        const nodeCollections = groupNodesByTree(nodeData);
+        // Get the tree config to check the orientation
+        const settings = getTreeConfigFromView(update.view);
+        
+        // Always use paragraph-scoped trees for better organization
+        const nodeCollections = groupNodesByParagraph(nodeData);
+            
         debug("Updated node collections:", nodeCollections);
         
         // Build tree structures from node collections
@@ -256,6 +280,7 @@ export class TreeViewPlugin {
         
         // Get settings
         const settings = getTreeConfigFromView(view);
+        const isVertical = settings.treeOrientation === "vertical";
         
         // Render each tree
         for (const treeData of this.trees) {
@@ -275,8 +300,15 @@ export class TreeViewPlugin {
             
             if (svg) {
                 debug("Tree rendered, positioning SVG");
-                // Position the SVG at the correct document position
-                this.treeRenderer.positionTreeSVG(svg, treeData.position);
+                
+                // Always use paragraph boundaries for positioning if available
+                if (treeData.paragraphStart !== undefined) {
+                    // Position at the paragraph boundary
+                    this.treeRenderer.positionTreeSVG(svg, treeData.paragraphStart);
+                } else {
+                    // Fallback to root node position
+                    this.treeRenderer.positionTreeSVG(svg, treeData.position);
+                }
             } else {
                 debug("Failed to render tree");
             }
