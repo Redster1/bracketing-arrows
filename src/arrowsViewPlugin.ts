@@ -2,7 +2,7 @@ import { EditorState, StateEffect } from "@codemirror/state";
 import { EditorView, ViewUpdate, Decoration, DecorationSet, ViewPlugin, WidgetType } from "@codemirror/view";
 import { MatchDecoratorAll } from "./matchDecoratorAll";
 import { ArrowsManager } from "./arrowsManager";
-import { ArrowIdentifierData, ArrowIdentifierPosData, ArrowIdentifierCollection, arrowSourceToArrowIdentifierData, arrowIdentifierCollectionIsResolved, rangeWithinExcludedContext, colorToEffectiveColor } from './utils';
+import { ArrowIdentifierData, ArrowIdentifierPosData, ArrowIdentifierCollection, arrowSourceToArrowIdentifierData, arrowIdentifierCollectionIsResolved, rangeWithinExcludedContext, colorToEffectiveColor, buildArrowHierarchy } from './utils';
 import * as constants from "./consts";
 import { getArrowConfigFromView } from "./arrowsConfig";
 
@@ -55,7 +55,11 @@ export class ArrowsViewPlugin {
         // Wait until syntaxTree is ready and widgets have been rendered in the DOM to draw arrows
         queueMicrotask(() => {
             const posData = this.arrowIdentifierRangesToArrowIdentifierPosData(this.arrowIdentifierRanges, view.state);
-            this.arrowIdentifierCollections = this.collectArrowIdentifierPosData(posData);
+            const collections = this.collectArrowIdentifierPosData(posData);
+            
+            // Build hierarchy information based on arrow positions
+            this.arrowIdentifierCollections = buildArrowHierarchy(collections);
+            
             const decos = this.arrowIdentifierCollectionsToDecos(this.arrowIdentifierCollections, view);
             this.decorations = decos;
 
@@ -82,7 +86,11 @@ export class ArrowsViewPlugin {
         // Update arrows
         this.arrowIdentifierRanges = arrowIdentifierHighlighter.updateDeco(update, this.arrowIdentifierRanges);
         const posData = this.arrowIdentifierRangesToArrowIdentifierPosData(this.arrowIdentifierRanges, update.state);
-        this.arrowIdentifierCollections = this.collectArrowIdentifierPosData(posData);
+        const collections = this.collectArrowIdentifierPosData(posData);
+        
+        // Build hierarchy information based on arrow positions
+        this.arrowIdentifierCollections = buildArrowHierarchy(collections);
+        
         const decos = this.arrowIdentifierCollectionsToDecos(this.arrowIdentifierCollections, update.view);
         this.decorations = decos;
 
@@ -178,7 +186,7 @@ export class ArrowsViewPlugin {
                     const scrollTo = nextArrowIdentifier?.from;
 
                     deco = Decoration.replace({
-                        widget: new PrettifiedCircle(color, arrowIdentifier.arrowData),
+                        widget: new PrettifiedCircle(color, arrowIdentifier.arrowData, arrowIdentifierCollection.hierarchy?.level || 0),
                         inclusive: false,
                         block: false,
                         arrowIdentifierPosData: arrowIdentifier,
@@ -243,24 +251,36 @@ export const arrowsViewPlugin = ViewPlugin.fromClass(
 class PrettifiedCircle extends WidgetType {
     private readonly color: string;
     private readonly arrowIdentifierData: ArrowIdentifierData;
+    private readonly hierarchyLevel: number;
 
-    constructor(color: string, arrowIdentifierData: ArrowIdentifierData) {
+    constructor(color: string, arrowIdentifierData: ArrowIdentifierData, hierarchyLevel: number = 0) {
         super();
 
         this.color = color;
         this.arrowIdentifierData = arrowIdentifierData;
+        this.hierarchyLevel = hierarchyLevel;
     }
 
     eq(other: PrettifiedCircle) {
-        return (other.color === this.color);
+        return (other.color === this.color && other.hierarchyLevel === this.hierarchyLevel);
     }
 
     toDOM() {
         const span = document.createElement("span");
         span.style.color = this.color;
         span.className = constants.ARROW_IDENTIFIER_PRETTIFIED_CIRCLE_CLASS;
+        
+        // Add hierarchy level as a data attribute for potential styling
+        span.setAttribute('data-hierarchy-level', this.hierarchyLevel.toString());
 
-        span.textContent = "●" // •
+        // Use different symbol or style based on hierarchy level
+        if (this.hierarchyLevel > 0) {
+            span.classList.add('hierarchy-level-' + this.hierarchyLevel);
+            // Could use different symbols for different levels if desired
+            // span.textContent = this.hierarchyLevel === 1 ? "◆" : "■"; 
+        }
+        
+        span.textContent = "●"; // Default circle
         return span;
     }
 
@@ -268,4 +288,3 @@ class PrettifiedCircle extends WidgetType {
         return false;
     }
 }
-

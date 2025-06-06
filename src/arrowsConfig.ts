@@ -1,28 +1,31 @@
-import { EditorView } from "@codemirror/view";
-import { Facet, Compartment } from "@codemirror/state";
-import { ArrowsPluginSettings, DEFAULT_SETTINGS } from "./settings";
+import { Facet, StateEffect, Extension, Compartment } from "@codemirror/state";
+import { DiscourseTreeSettings } from "./settings";
+
+// Keep this for backward compatibility
+export interface ArrowsPluginSettings {
+    defaultArrowColor: string;
+    diagonalArrowStyle: string;
+    userDefinedColors: string;
+}
+
+export const DEFAULT_ARROWS_SETTINGS: ArrowsPluginSettings = {
+    defaultArrowColor: "var(--text-normal)",
+    diagonalArrowStyle: "fluid",
+    userDefinedColors: ""
+};
 
 export const arrowsConfig = Facet.define<ArrowsPluginSettings, ArrowsPluginSettings>({
-    combine: (input) => {
-        if (input.length > 0) {
-            return input[0];
-        }
-        else {
-            return DEFAULT_SETTINGS;
-        }
-    }
+    combine: (values) => values[0] || DEFAULT_ARROWS_SETTINGS
 });
-
-export function getArrowConfigFromView(view: EditorView) {
-    return view.state.facet(arrowsConfig);
-}
 
 export const arrowsConfigCompartment = new Compartment();
 
-export function getArrowsConfigExtension(arrowPluginSettings: ArrowsPluginSettings) {
-    return arrowsConfigCompartment.of(arrowsConfig.of(arrowPluginSettings));
+export function getArrowsConfigExtension(settings: ArrowsPluginSettings): Extension {
+    return arrowsConfigCompartment.of(arrowsConfig.of(settings));
 }
 
-export function reconfigureArrowsConfig(arrowPluginSettings: ArrowsPluginSettings) {
-    return arrowsConfigCompartment.reconfigure(arrowsConfig.of(arrowPluginSettings));
+export const reconfigureArrowsConfig = StateEffect.define<ArrowsPluginSettings>();
+
+export function getArrowConfigFromView(view: any) {
+    return view.state.facet(arrowsConfig);
 }

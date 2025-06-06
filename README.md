@@ -1,125 +1,70 @@
-# Arrows
-A plugin for [Obsidian](https://obsidian.md/) that lets you draw arrows in your notes, similar to how you might draw arrows across different parts of your notes on paper.
+# Discourse Tree Plugin for Obsidian
 
-**Works in Live Preview mode only.**
+A plugin for visualizing hierarchical discourse analysis trees in the document margin, allowing users to visualize logical relationships and argument structures alongside their text.
 
-![demo](screenshots/demo.png)
+## Features
 
-## Usage
-### Drawing arrows
-Type `{arrow-identifier|color}` to mark the start of an arrow, e.g. `{my-arrow|#1e90ff}`.
+- Create hierarchical tree visualizations directly from text syntax
+- Display trees in the right margin of your notes
+- Support for nested parent-child relationships
+- Customizable node appearance and tree layout
+- Works with Obsidian's light and dark themes
 
-Then, type `{arrow-identifier}` elsewhere to mark the end of the arrow; in this case, `{my-arrow}`.
+## Syntax
 
-An arrow will be drawn from the start identifier to the end identifier along the margin.
-
-```
-Lorem ipsum dolor sit amet, consectetur {my-arrow|#1e90ff} adipiscing elit. Tempus tortor ac, commodo purus.
-
-Morbi et lacus suscipit, dignissim purus at, dapibus augue. {my-arrow} Aliquam non lectus varius.
-```
-<img width=450 src="./screenshots/drawing-arrows.png">
-
----
-
-### Diagonal arrows
-To create a diagonal arrow, append "`|diagonal`" to the start identifier of the arrow, e.g. `{my-arrow|#ff5555|diagonal}`.
+Define tree nodes using the following syntax:
 
 ```
-Lorem ipsum dolor sit amet, consectetur {my-arrow2|#ff5555|diagonal} adipiscing elit. Tempus tortor ac, commodo purus.
-
-Morbi et lacus suscipit, dignissim purus at, dapibus {my-arrow2} augue. Aliquam non lectus varius.
+{node_id|parent_id|label}
 ```
 
-<img width=450 src="./screenshots/diagonal.png">
+Where:
+- `node_id`: A unique identifier for this node
+- `parent_id`: The identifier of the parent node (use "root" for top-level nodes)
+- `label`: (Optional) A text label for the node
 
----
+## Example
 
-### Drawing more arrows
-You can add more arrows by using different arrow identifiers, e.g. `{this-is-another-arrow|orange}`:
-
-```
-Lorem ipsum dolor sit amet, {this-is-another-arrow|orange} consectetur adipiscing elit. {my-arrow3}
-
-Morbi et lacus suscipit, dignissim purus at, dapibus augue. Aliquam non lectus varius, {my-arrow3|#1e90ff|diagonal} tempus tortor ac, commodo purus. {this-is-another-arrow}
-```
-
-<img width=450 src="./screenshots/more-arrows.png">
-
----
-
-### Multi-arrows
-You can have multiple end identifiers corresponding to a single start identifier. An arrow will be drawn for each:
+Adding the following to your document:
 
 ```
-Lorem ipsum dolor sit amet, {multi-arrow|limegreen} consectetur adipiscing elit.
-
-Morbi et lacus suscipit, dignissim purus at, dapibus augue. Aliquam non lectus varius, tempus tortor ac, commodo purus. {multi-arrow}
-
-Pellentesque posuere ex non facilisis bibendum. Integer iaculis dolor dignissim, ultrices ligula eu, malesuada metus. {multi-arrow}
+{A|root|Main Argument}This is my main argument.
+{B|A|Supporting Evidence 1}Here's my first piece of evidence.
+{C|A|Supporting Evidence 2}And here's another.
+{D|B|Detail}With an additional detail.
 ```
 
-<img width=450 src="./screenshots/multi-arrows.png">
+Will render a tree in the margin showing the hierarchical relationship between these nodes.
 
----
+## Settings
 
-### Adjusting margin arrows
-Adjust the x-position of margin arrows by appending "`|x-pos`" to the start identifier, where `x-pos` is a number between 0 and 30, e.g. `{my-arrow|blue|10}`.
+You can customize the appearance of your trees in the plugin settings:
 
-```
-Lorem ipsum dolor sit amet, {first|dodgerblue|20} consectetur adipiscing elit. {second|limegreen|10}
+- Tree orientation (horizontal/vertical)
+- Margin width
+- Node size
+- Font size
+- Line width
+- Custom colors
 
-Morbi et lacus suscipit, dignissim purus at, dapibus augue. {third|tomato} Aliquam non lectus varius, tempus tortor ac, commodo purus.
+## Installation
 
-Pellentesque posuere {third} ex non facilisis bibendum. {second}
-Integer iaculis dolor dignissim, ultrices ligula eu, malesuada metus. {first}
-```
+1. Download the latest release from the Releases page
+2. Extract the zip file into your Obsidian plugins folder
+3. Enable the plugin in Obsidian settings
 
-<img width=450 src="./screenshots/adjusting-margin-arrows.png">
+## Development
 
----
+This plugin is built using:
 
-### Arrowheads
-Add an arrowhead to the start of an arrow by appending "`|arrow`" to the start identifier.
+- D3.js for tree visualization
+- CodeMirror 6 for editor integration
 
-Remove the arrowhead at the *end* of an arrow by appending "`|no-arrow`" to the end identifier.
+## Credits
 
-```
-Lorem ipsum dolor sit amet, {double-arrow|#3d6eff|arrow} consectetur adipiscing elit.
+- Based on the architecture of the [Obsidian Arrows plugin](https://github.com/artisticat1/obsidian-arrows)
+- Uses D3.js for tree visualization
 
-Morbi et lacus suscipit, {double-arrow} dignissim purus at, dapibus augue. {line|#9d6efa} Aliquam non lectus varius, tempus tortor ac, commodo purus.
+## License
 
-Pellentesque posuere ex non facilisis bibendum. {line|no-arrow}
-```
-
-<img width=450 src="./screenshots/arrowheads.png">
-
----
-
-### Navigating between arrows
-When the cursor is moved outside of the `{arrow-identifier}` syntax, the syntax will be rendered as a small circle ● for a tidier look.
-
-You can click on any arrow identifier ● to automatically scroll to the next matching identifier. This lets you quickly navigate between arrow start/end positions in a long document.
-
-## Full arrow syntax
-Write
-- `{arrow-identifier|color|opacity|type|x-position|arrowhead}` to denote the start of an arrow, where:
-    - `arrow-identifier` is a string that acts as the arrow's identifier
-    - `color` is any valid color in CSS notation, e.g. `red`, `#ff0000`
-    - `opacity` (optional) is a float between 0 and 1, e.g. `0.6`. Defaults to 1.
-    - `type` (optional) is either "`diagonal`" or "`margin`". Defaults to "`margin`".
-    - `x-position` (optional) is an integer between 0 and 30. Sets the x-position of margin arrows. Defaults to 0.
-    - `arrowhead` (optional) is either "`no-arrow`" or "`arrow`". Use "`arrow`" to add an arrowhead to the start of the arrow. Defaults to "`no-arrow`".
-- `{arrow-identifier}` to denote the end of an arrow.
-    - Write `{arrow-identifier|no-arrow}` instead to remove the arrowhead from the end of the arrow.
-
-Arrows will be drawn from each start identifier to all corresponding end identifiers.
-
-## Limitations
-Works in Live Preview mode only.
-
-## Contributing
-Any contributions and PRs are welcome!
-
-## Acknowledgements
-This project uses the [leader-line](https://anseki.github.io/leader-line/) library to draw arrows.
+MIT
