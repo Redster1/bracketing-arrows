@@ -119,12 +119,27 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
         
         if (node.isStandalone) {
             console.log(`[1Bracket] Identified standalone node: ${id}`);
+            
+            // For standalone nodes, we set their children to an empty array
+            // to ensure they're treated consistently
+            node.children = [];
         }
     }
     
     console.log(`[1Bracket] Found ${rootNodes.length} root nodes`);
     
-    // Create a TreeData object for each root node
+    // Sort the root nodes to handle standalone nodes last
+    // This ensures that standalone nodes will be processed separately
+    rootNodes.sort((a, b) => {
+        // If one is standalone and the other isn't, the standalone comes last
+        if (a.isStandalone && !b.isStandalone) return 1;
+        if (!a.isStandalone && b.isStandalone) return -1;
+        // Otherwise, sort by position
+        return (a.position || 0) - (b.position || 0);
+    });
+    
+    // Create separate TreeData objects for standalone nodes
+    // and normal connected trees
     for (const root of rootNodes) {
         // Only create a tree if it has at least one node
         if (root) {
@@ -132,10 +147,17 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
                 root,
                 position: root.position || 0,
                 paragraphStart: nodeCollection.paragraphStart,
-                paragraphEnd: nodeCollection.paragraphEnd
+                paragraphEnd: nodeCollection.paragraphEnd,
+                // Mark the entire tree as standalone if its root is standalone
+                isStandaloneTree: root.isStandalone || false
             };
             trees.push(treeData);
-            console.log(`[1Bracket] Created tree with root node:`, root);
+            
+            if (root.isStandalone) {
+                console.log(`[1Bracket] Created standalone tree with root node:`, root);
+            } else {
+                console.log(`[1Bracket] Created connected tree with root node:`, root);
+            }
         }
     }
     

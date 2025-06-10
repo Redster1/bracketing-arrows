@@ -282,9 +282,15 @@ export class TreeViewPlugin {
         const settings = getTreeConfigFromView(view);
         const isVertical = settings.treeOrientation === "vertical";
         
-        // Render each tree
-        for (const treeData of this.trees) {
-            debug("Rendering tree:", treeData);
+        // Separate standalone trees and connected trees
+        const connectedTrees = this.trees.filter(tree => !tree.isStandaloneTree);
+        const standaloneTrees = this.trees.filter(tree => tree.isStandaloneTree);
+        
+        debug(`Separated trees: ${connectedTrees.length} connected, ${standaloneTrees.length} standalone`);
+        
+        // First render all connected trees
+        for (const treeData of connectedTrees) {
+            debug("Rendering connected tree:", treeData);
             // Define constraints for the tree rendering
             const constraints: RenderConstraints = {
                 width: settings.marginWidth,
@@ -299,7 +305,7 @@ export class TreeViewPlugin {
             const svg = this.treeRenderer.renderTree(treeData, constraints);
             
             if (svg) {
-                debug("Tree rendered, positioning SVG");
+                debug("Connected tree rendered, positioning SVG");
                 
                 // Always use paragraph boundaries for positioning if available
                 if (treeData.paragraphStart !== undefined) {
@@ -310,7 +316,43 @@ export class TreeViewPlugin {
                     this.treeRenderer.positionTreeSVG(svg, treeData.position);
                 }
             } else {
-                debug("Failed to render tree");
+                debug("Failed to render connected tree");
+            }
+        }
+        
+        // Then render all standalone trees with special treatment
+        for (const treeData of standaloneTrees) {
+            debug("Rendering standalone tree:", treeData);
+            
+            // For standalone trees, we use different constraints to position them on the right
+            const constraints: RenderConstraints = {
+                width: settings.marginWidth,
+                height: this.calculateTreeHeight(treeData, view),
+                marginTop: 10,
+                marginRight: 10,
+                marginBottom: 10,
+                marginLeft: 30,
+                // Add special flag for standalone trees
+                isStandaloneTree: true
+            };
+            
+            // Render the standalone tree
+            const svg = this.treeRenderer.renderTree(treeData, constraints);
+            
+            if (svg) {
+                debug("Standalone tree rendered, positioning SVG");
+                svg.classList.add('standalone-tree'); // Add special class for CSS styling
+                
+                // Always use paragraph boundaries for positioning if available
+                if (treeData.paragraphStart !== undefined) {
+                    // Position at the paragraph boundary
+                    this.treeRenderer.positionTreeSVG(svg, treeData.paragraphStart);
+                } else {
+                    // Fallback to root node position
+                    this.treeRenderer.positionTreeSVG(svg, treeData.position);
+                }
+            } else {
+                debug("Failed to render standalone tree");
             }
         }
     }

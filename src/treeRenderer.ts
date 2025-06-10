@@ -16,6 +16,7 @@ export interface RenderConstraints {
     marginRight?: number;
     marginBottom?: number;
     marginLeft?: number;
+    isStandaloneTree?: boolean; // Flag to indicate this is a standalone tree node
 }
 
 export class TreeRenderer {
@@ -79,11 +80,39 @@ export class TreeRenderer {
                 treeLayout.size([innerHeight, innerWidth]);
             }
             
+            // Check if this is a standalone tree from the constraints or data
+            const isStandaloneTree = constraints.isStandaloneTree || treeData.isStandaloneTree;
+            
             // Apply the layout to the hierarchy
             const nodes = treeLayout(root);
             
-            // Align leaf nodes to the same X position
-            this.alignLeafNodes(nodes, isVertical);
+            // Special handling for standalone trees - force them to the rightmost position
+            if (isStandaloneTree) {
+                console.log("[1Bracket] Handling standalone tree node");
+                
+                // For standalone trees, position them at the rightmost edge like leaf nodes
+                if (isVertical) {
+                    // Find the maximum Y value in the entire visualization
+                    const maxY = innerHeight;
+                    
+                    // Apply to all nodes in the tree (usually just one for standalone)
+                    nodes.descendants().forEach(node => {
+                        node.y = maxY;
+                    });
+                    
+                } else {
+                    // Find the maximum X value in the entire visualization (y in horizontal layout)
+                    const maxX = innerWidth;
+                    
+                    // Apply to all nodes in the tree (usually just one for standalone)
+                    nodes.descendants().forEach(node => {
+                        node.y = maxX;
+                    });
+                }
+            } else {
+                // For normal trees, align leaf nodes to the same position
+                this.alignLeafNodes(nodes, isVertical);
+            }
             
             // First create links (lower z-index)
             this.renderBracketLinks(g, nodes, settings, isVertical);
