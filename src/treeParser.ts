@@ -77,6 +77,9 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     console.log(`[1Bracket] Created nodes by ID:`, Array.from(nodesById.entries()));
     
     // Second pass - build the tree structure by connecting parents and children
+    // Track processed relationships to prevent circular references
+    const processedRelationships = new Set<string>();
+    
     for (const node of sortedNodes) {
         const treeNode = nodesById.get(node.id);
         if (!treeNode) continue;
@@ -89,6 +92,25 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
             // Find the parent node
             const parentNode = nodesById.get(node.parentId);
             if (parentNode) {
+                // Check for circular reference
+                const relationshipKey = `${node.id}->${node.parentId}`;
+                const reverseRelationshipKey = `${node.parentId}->${node.id}`;
+                
+                if (processedRelationships.has(reverseRelationshipKey)) {
+                    console.warn(`[1Bracket] Circular reference detected between ${node.id} and ${node.parentId}, treating ${node.id} as root`);
+                    rootNodes.push(treeNode);
+                    continue;
+                }
+                
+                // Prevent a node from being its own parent
+                if (node.id === node.parentId) {
+                    console.warn(`[1Bracket] Node ${node.id} cannot be its own parent, treating as root`);
+                    rootNodes.push(treeNode);
+                    continue;
+                }
+                
+                processedRelationships.add(relationshipKey);
+                
                 if (!parentNode.children) {
                     parentNode.children = [];
                 }
@@ -174,11 +196,13 @@ export function groupNodesByParagraph(nodes: NodeSyntaxData[]): NodeCollection[]
     
     const collections: NodeCollection[] = [];
     const paragraphGroups = new Map<string, NodeSyntaxData[]>();
+    const nodesWithoutParagraphs: NodeSyntaxData[] = [];
     
     // Group nodes by their paragraph boundaries
     for (const node of nodes) {
         if (!node.paragraphStart || !node.paragraphEnd) {
-            console.log(`[1Bracket] Node missing paragraph boundaries, skipping:`, node);
+            console.log(`[1Bracket] Node missing paragraph boundaries, adding to fallback group:`, node);
+            nodesWithoutParagraphs.push(node);
             continue;
         }
         
@@ -208,7 +232,26 @@ export function groupNodesByParagraph(nodes: NodeSyntaxData[]): NodeCollection[]
         }
     }
     
-    console.log(`[1Bracket] Created ${collections.length} paragraph collections`);
+    // If we have nodes without paragraph boundaries, create a fallback collection
+    if (nodesWithoutParagraphs.length > 0) {
+        console.log(`[1Bracket] Creating fallback collection for ${nodesWithoutParagraphs.length} nodes without paragraph boundaries`);
+        
+        // Use the document position range of these nodes as fallback boundaries
+        const positions = nodesWithoutParagraphs.map(n => n.from);
+        const minPos = Math.min(...positions);
+        const maxPos = Math.max(...nodesWithoutParagraphs.map(n => n.to));
+        
+        const fallbackCollection = {
+            nodes: nodesWithoutParagraphs,
+            paragraphStart: minPos,
+            paragraphEnd: maxPos
+        };
+        
+        collections.push(fallbackCollection);
+        console.log(`[1Bracket] Created fallback collection:`, fallbackCollection);
+    }
+    
+    console.log(`[1Bracket] Created ${collections.length} total collections`);
     return collections;
 }
 
@@ -300,16 +343,26 @@ export function sortTreesByPosition(trees: TreeData[]): TreeData[] {
 /**
  * Sorts all children in a tree node by their document position
  */
-function sortTreeNodeChildren(node: TreeNode) {
+function sortTreeNodeChildren(node: TreeNode, visited: Set<string> = new Set()) {
     if (!node.children || node.children.length === 0) {
         return;
     }
+    
+    // Prevent infinite loops with circular references
+    if (visited.has(node.id)) {
+        console.warn(`[1Bracket] Circular reference detected for node: ${node.id}`);
+        return;
+    }
+    
+    visited.add(node.id);
     
     // Sort children by position
     node.children.sort((a, b) => (a.position || 0) - (b.position || 0));
     
     // Sort children of children recursively
     for (const child of node.children) {
-        sortTreeNodeChildren(child);
+        sortTreeNodeChildren(child, visited);
     }
+    
+    visited.delete(node.id);
 }
