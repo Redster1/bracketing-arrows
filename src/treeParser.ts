@@ -53,6 +53,8 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     const nodesById = new Map<string, TreeNode>();
     const rootNodes: TreeNode[] = [];
     const trees: TreeData[] = [];
+    const nodeHasChildren = new Set<string>();
+    const nodeHasParent = new Set<string>();
     
     // Sort nodes by their document position to ensure consistent ordering
     const sortedNodes = [...nodeCollection.nodes].sort((a, b) => a.from - b.from);
@@ -64,7 +66,9 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
             parentId: node.parentId === "root" ? undefined : node.parentId,
             label: node.label,
             children: [],
-            position: node.from
+            position: node.from,
+            // Mark if this is a standalone node (no parent, no children)
+            isStandalone: true
         };
         
         nodesById.set(node.id, treeNode);
@@ -73,6 +77,9 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     console.log(`[1Bracket] Created nodes by ID:`, Array.from(nodesById.entries()));
     
     // Second pass - build the tree structure by connecting parents and children
+    // Track processed relationships to prevent circular references
+    const processedRelationships = new Set<string>();
+    
     for (const node of sortedNodes) {
         const treeNode = nodesById.get(node.id);
         if (!treeNode) continue;
@@ -85,11 +92,39 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
             // Find the parent node
             const parentNode = nodesById.get(node.parentId);
             if (parentNode) {
+                // Check for circular reference
+                const relationshipKey = `${node.id}->${node.parentId}`;
+                const reverseRelationshipKey = `${node.parentId}->${node.id}`;
+                
+                if (processedRelationships.has(reverseRelationshipKey)) {
+                    console.warn(`[1Bracket] Circular reference detected between ${node.id} and ${node.parentId}, treating ${node.id} as root`);
+                    rootNodes.push(treeNode);
+                    continue;
+                }
+                
+                // Prevent a node from being its own parent
+                if (node.id === node.parentId) {
+                    console.warn(`[1Bracket] Node ${node.id} cannot be its own parent, treating as root`);
+                    rootNodes.push(treeNode);
+                    continue;
+                }
+                
+                processedRelationships.add(relationshipKey);
+                
                 if (!parentNode.children) {
                     parentNode.children = [];
                 }
                 // Add this node as a child of its parent
                 parentNode.children.push(treeNode);
+                
+                // Mark that this node has a parent and the parent has children
+                nodeHasParent.add(treeNode.id);
+                nodeHasChildren.add(parentNode.id);
+                
+                // Update the standalone status
+                treeNode.isStandalone = false;
+                parentNode.isStandalone = false;
+                
                 console.log(`[1Bracket] Added child node ${treeNode.id} to parent ${parentNode.id}`);
             } else {
                 // Parent node not found - treat as a root
@@ -99,9 +134,34 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
         }
     }
     
+    // Identify true standalone nodes that have no connections
+    for (const [id, node] of nodesById.entries()) {
+        // A true standalone node has no parent and no children
+        node.isStandalone = !nodeHasParent.has(id) && !nodeHasChildren.has(id);
+        
+        if (node.isStandalone) {
+            console.log(`[1Bracket] Identified standalone node: ${id}`);
+            
+            // For standalone nodes, we set their children to an empty array
+            // to ensure they're treated consistently
+            node.children = [];
+        }
+    }
+    
     console.log(`[1Bracket] Found ${rootNodes.length} root nodes`);
     
-    // Create a TreeData object for each root node
+    // Sort the root nodes to handle standalone nodes last
+    // This ensures that standalone nodes will be processed separately
+    rootNodes.sort((a, b) => {
+        // If one is standalone and the other isn't, the standalone comes last
+        if (a.isStandalone && !b.isStandalone) return 1;
+        if (!a.isStandalone && b.isStandalone) return -1;
+        // Otherwise, sort by position
+        return (a.position || 0) - (b.position || 0);
+    });
+    
+    // Create separate TreeData objects for standalone nodes
+    // and normal connected trees
     for (const root of rootNodes) {
         // Only create a tree if it has at least one node
         if (root) {
@@ -109,10 +169,17 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
                 root,
                 position: root.position || 0,
                 paragraphStart: nodeCollection.paragraphStart,
-                paragraphEnd: nodeCollection.paragraphEnd
+                paragraphEnd: nodeCollection.paragraphEnd,
+                // Mark the entire tree as standalone if its root is standalone
+                isStandaloneTree: root.isStandalone || false
             };
             trees.push(treeData);
-            console.log(`[1Bracket] Created tree with root node:`, root);
+            
+            if (root.isStandalone) {
+                console.log(`[1Bracket] Created standalone tree with root node:`, root);
+            } else {
+                console.log(`[1Bracket] Created connected tree with root node:`, root);
+            }
         }
     }
     
@@ -129,11 +196,13 @@ export function groupNodesByParagraph(nodes: NodeSyntaxData[]): NodeCollection[]
     
     const collections: NodeCollection[] = [];
     const paragraphGroups = new Map<string, NodeSyntaxData[]>();
+    const nodesWithoutParagraphs: NodeSyntaxData[] = [];
     
     // Group nodes by their paragraph boundaries
     for (const node of nodes) {
         if (!node.paragraphStart || !node.paragraphEnd) {
-            console.log(`[1Bracket] Node missing paragraph boundaries, skipping:`, node);
+            console.log(`[1Bracket] Node missing paragraph boundaries, adding to fallback group:`, node);
+            nodesWithoutParagraphs.push(node);
             continue;
         }
         
@@ -163,7 +232,26 @@ export function groupNodesByParagraph(nodes: NodeSyntaxData[]): NodeCollection[]
         }
     }
     
-    console.log(`[1Bracket] Created ${collections.length} paragraph collections`);
+    // If we have nodes without paragraph boundaries, create a fallback collection
+    if (nodesWithoutParagraphs.length > 0) {
+        console.log(`[1Bracket] Creating fallback collection for ${nodesWithoutParagraphs.length} nodes without paragraph boundaries`);
+        
+        // Use the document position range of these nodes as fallback boundaries
+        const positions = nodesWithoutParagraphs.map(n => n.from);
+        const minPos = Math.min(...positions);
+        const maxPos = Math.max(...nodesWithoutParagraphs.map(n => n.to));
+        
+        const fallbackCollection = {
+            nodes: nodesWithoutParagraphs,
+            paragraphStart: minPos,
+            paragraphEnd: maxPos
+        };
+        
+        collections.push(fallbackCollection);
+        console.log(`[1Bracket] Created fallback collection:`, fallbackCollection);
+    }
+    
+    console.log(`[1Bracket] Created ${collections.length} total collections`);
     return collections;
 }
 
@@ -255,16 +343,26 @@ export function sortTreesByPosition(trees: TreeData[]): TreeData[] {
 /**
  * Sorts all children in a tree node by their document position
  */
-function sortTreeNodeChildren(node: TreeNode) {
+function sortTreeNodeChildren(node: TreeNode, visited: Set<string> = new Set()) {
     if (!node.children || node.children.length === 0) {
         return;
     }
+    
+    // Prevent infinite loops with circular references
+    if (visited.has(node.id)) {
+        console.warn(`[1Bracket] Circular reference detected for node: ${node.id}`);
+        return;
+    }
+    
+    visited.add(node.id);
     
     // Sort children by position
     node.children.sort((a, b) => (a.position || 0) - (b.position || 0));
     
     // Sort children of children recursively
     for (const child of node.children) {
-        sortTreeNodeChildren(child);
+        sortTreeNodeChildren(child, visited);
     }
+    
+    visited.delete(node.id);
 }
