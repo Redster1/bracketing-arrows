@@ -53,6 +53,8 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
     const nodesById = new Map<string, TreeNode>();
     const rootNodes: TreeNode[] = [];
     const trees: TreeData[] = [];
+    const nodeHasChildren = new Set<string>();
+    const nodeHasParent = new Set<string>();
     
     // Sort nodes by their document position to ensure consistent ordering
     const sortedNodes = [...nodeCollection.nodes].sort((a, b) => a.from - b.from);
@@ -64,7 +66,9 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
             parentId: node.parentId === "root" ? undefined : node.parentId,
             label: node.label,
             children: [],
-            position: node.from
+            position: node.from,
+            // Mark if this is a standalone node (no parent, no children)
+            isStandalone: true
         };
         
         nodesById.set(node.id, treeNode);
@@ -90,12 +94,31 @@ export function buildTree(nodeCollection: NodeCollection): TreeData[] {
                 }
                 // Add this node as a child of its parent
                 parentNode.children.push(treeNode);
+                
+                // Mark that this node has a parent and the parent has children
+                nodeHasParent.add(treeNode.id);
+                nodeHasChildren.add(parentNode.id);
+                
+                // Update the standalone status
+                treeNode.isStandalone = false;
+                parentNode.isStandalone = false;
+                
                 console.log(`[1Bracket] Added child node ${treeNode.id} to parent ${parentNode.id}`);
             } else {
                 // Parent node not found - treat as a root
                 rootNodes.push(treeNode);
                 console.log(`[1Bracket] Parent node ${node.parentId} not found for ${treeNode.id}, treating as root`);
             }
+        }
+    }
+    
+    // Identify true standalone nodes that have no connections
+    for (const [id, node] of nodesById.entries()) {
+        // A true standalone node has no parent and no children
+        node.isStandalone = !nodeHasParent.has(id) && !nodeHasChildren.has(id);
+        
+        if (node.isStandalone) {
+            console.log(`[1Bracket] Identified standalone node: ${id}`);
         }
     }
     

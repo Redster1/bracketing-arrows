@@ -10,6 +10,8 @@ export interface TreeNode {
   y?: number;
   // Document position for the node
   position?: number;
+  // Whether this is a standalone node (no parent, no children)
+  isStandalone?: boolean;
 }
 
 export interface TreeData {
