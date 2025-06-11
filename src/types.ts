@@ -10,6 +10,8 @@ export interface TreeNode {
   y?: number;
   // Document position for the node
   position?: number;
+  // Whether this is a standalone node (no parent, no children)
+  isStandalone?: boolean;
 }
 
 export interface TreeData {
@@ -17,6 +19,7 @@ export interface TreeData {
   position: number; // Document position of the tree root
   paragraphStart?: number; // Start position of the containing paragraph
   paragraphEnd?: number;   // End position of the containing paragraph
+  isStandaloneTree?: boolean; // Whether this tree consists of a single standalone node
 }
 
 export interface NodeSyntaxData {

@@ -16,6 +16,7 @@ export interface RenderConstraints {
     marginRight?: number;
     marginBottom?: number;
     marginLeft?: number;
+    isStandaloneTree?: boolean; // Flag to indicate this is a standalone tree node
 }
 
 export class TreeRenderer {
@@ -79,11 +80,39 @@ export class TreeRenderer {
                 treeLayout.size([innerHeight, innerWidth]);
             }
             
+            // Check if this is a standalone tree from the constraints or data
+            const isStandaloneTree = constraints.isStandaloneTree || treeData.isStandaloneTree;
+            
             // Apply the layout to the hierarchy
             const nodes = treeLayout(root);
             
-            // Align leaf nodes to the same X position
-            this.alignLeafNodes(nodes, isVertical);
+            // Special handling for standalone trees - force them to the rightmost position
+            if (isStandaloneTree) {
+                console.log("[1Bracket] Handling standalone tree node");
+                
+                // For standalone trees, position them at the rightmost edge like leaf nodes
+                if (isVertical) {
+                    // Find the maximum Y value in the entire visualization
+                    const maxY = innerHeight;
+                    
+                    // Apply to all nodes in the tree (usually just one for standalone)
+                    nodes.descendants().forEach(node => {
+                        node.y = maxY;
+                    });
+                    
+                } else {
+                    // Find the maximum X value in the entire visualization (y in horizontal layout)
+                    const maxX = innerWidth;
+                    
+                    // Apply to all nodes in the tree (usually just one for standalone)
+                    nodes.descendants().forEach(node => {
+                        node.y = maxX;
+                    });
+                }
+            } else {
+                // For normal trees, align leaf nodes to the same position
+                this.alignLeafNodes(nodes, isVertical);
+            }
             
             // First create links (lower z-index)
             this.renderBracketLinks(g, nodes, settings, isVertical);
@@ -241,40 +270,69 @@ export class TreeRenderer {
     }
     
     /**
-     * Aligns all leaf nodes to the same position on the X-axis (or Y-axis in vertical mode)
+     * Aligns all leaf nodes and standalone nodes to the same position on the X-axis (or Y-axis in vertical mode)
+     * Standalone nodes without connections should be treated like leaf nodes
      */
     private alignLeafNodes(root: HierarchyNode<TreeNode>, isVertical: boolean) {
-        // Find all leaf nodes (nodes without children)
-        const leafNodes: HierarchyNode<TreeNode>[] = [];
+        // Find all leaf nodes (nodes without children) and standalone nodes
+        const nodesToAlign: HierarchyNode<TreeNode>[] = [];
+        const descendants = root.descendants();
         
-        // Function to recursively find leaf nodes
-        const findLeafNodes = (node: HierarchyNode<TreeNode>) => {
+        // Identify the rightmost position for alignment
+        let maxPosition = 0;
+        
+        // First, find all normal leaf nodes
+        descendants.forEach(node => {
+            // If it's a leaf node (has no children)
             if (!node.children || node.children.length === 0) {
-                leafNodes.push(node);
-            } else {
-                for (const child of node.children) {
-                    findLeafNodes(child);
+                nodesToAlign.push(node);
+                
+                // Update the max position (this will be used for alignment)
+                if (isVertical) {
+                    maxPosition = Math.max(maxPosition, node.y || 0);
+                } else {
+                    maxPosition = Math.max(maxPosition, node.y || 0);
                 }
             }
-        };
+        });
         
-        // Start the recursive search from the root
-        findLeafNodes(root);
+        // Then, handle standalone nodes that should be aligned with leaf nodes
+        descendants.forEach(node => {
+            // Check if this is a standalone node (marked during tree building)
+            if (node.data.isStandalone) {
+                // Only add it if not already added (could be both a leaf and standalone)
+                if (!nodesToAlign.includes(node)) {
+                    nodesToAlign.push(node);
+                }
+                
+                // Log that we're aligning a standalone node
+                console.log(`[1Bracket] Aligning standalone node: ${node.data.id}`);
+            }
+        });
         
-        // If no leaf nodes found, nothing to do
-        if (leafNodes.length === 0) return;
+        // If no nodes to align, nothing to do
+        if (nodesToAlign.length === 0) return;
         
+        // If we didn't find any leaf nodes to determine the max position,
+        // calculate it from all nodes
+        if (maxPosition === 0 && descendants.length > 0) {
+            if (isVertical) {
+                maxPosition = Math.max(...descendants.map(node => node.y || 0));
+            } else {
+                maxPosition = Math.max(...descendants.map(node => node.y || 0));
+            }
+        }
+        
+        // Align all identified nodes to the rightmost position
         if (isVertical) {
             // For vertical orientation, align Y positions
-            const maxY = Math.max(...leafNodes.map(node => node.y || 0));
-            leafNodes.forEach(node => {
-                node.y = maxY;
+            nodesToAlign.forEach(node => {
+                node.y = maxPosition;
             });
         } else {
             // For horizontal orientation, align X positions (stored in y in horizontal layout)
-            const maxX = Math.max(...leafNodes.map(node => node.y || 0));
-            leafNodes.forEach(node => {
-                node.y = maxX;
+            nodesToAlign.forEach(node => {
+                node.y = maxPosition;
             });
         }
     }

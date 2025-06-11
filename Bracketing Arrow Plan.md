@@ -46,6 +46,7 @@ A minimal working version that demonstrates the core architecture:
 
 User writes in their document:
 
+(Note: This tree has not been updated to the new syntax.)
 ```
 {10:Parent Label A}{2:Level 2 Label A}{1:Label 1}Line 1
 {1:Label 1}Line 2
