@@ -5,6 +5,7 @@ import { syntaxTree } from "@codemirror/language";
 import { Workspace, MarkdownView } from "obsidian";
 import { ARROW, MARGIN, NOARROW, DISC, DIAGONAL, BRACKET, arrowTypes, arrowPlugTypes, CONNECTION_POINT_PATTERN, ARROWS_PREFIX } from "./consts";
 import { ArrowsPluginSettings } from "./arrowsConfig";
+import { NodeSyntaxData } from "./types";
 
 // Hierarchy connection points - where a child arrow can connect to its parent
 export enum ConnectionPoint {
@@ -766,4 +767,220 @@ function determineConnectionPoint(child: ArrowIdentifierCollection, parent: Arro
     
     // Default fallback
     return ConnectionPoint.MIDDLE;
+}
+
+/**
+ * Generate the next node ID with suffix progression
+ * Examples: 1 → 1a, 1z → 1aa, MyNode → MyNodea
+ */
+export function generateNextNodeId(baseId: string, existingIds: Set<string>): string {
+    let candidate = incrementNodeId(baseId);
+    while (existingIds.has(candidate)) {
+        candidate = incrementNodeId(candidate);
+    }
+    return candidate;
+}
+
+/**
+ * Increment a node ID by one step in the suffix progression
+ * 1 → 1a → 1b → ... → 1z → 1aa → 1ab → ...
+ */
+function incrementNodeId(id: string): string {
+    // Match base part and optional lowercase letter suffix at the end
+    const match = id.match(/^(.*)([a-z]+)$/) || [null, id, null];
+    const base = match[1] || id;
+    const suffix = match[2];
+    
+    return base + (suffix ? incrementSuffix(suffix) : 'a');
+}
+
+/**
+ * Increment a letter suffix: a→b, z→aa, az→ba, etc.
+ */
+function incrementSuffix(suffix: string): string {
+    if (!suffix) return 'a';
+    
+    // Convert suffix to array of characters for easier manipulation
+    const chars = suffix.split('');
+    
+    // Start from the rightmost character and work left
+    for (let i = chars.length - 1; i >= 0; i--) {
+        if (chars[i] < 'z') {
+            // Can increment this character
+            chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1);
+            return chars.join('');
+        } else {
+            // This character is 'z', set to 'a' and continue to next position
+            chars[i] = 'a';
+        }
+    }
+    
+    // If we get here, all characters were 'z', so we need to add a new 'a' at the front
+    return 'a' + chars.join('');
+}
+
+/**
+ * Check if cursor is within a tree paragraph but not inside node syntax
+ */
+export function isInTreeParagraphButNotInSyntax(view: EditorView, pos: number): {
+    inTreeParagraph: boolean;
+    lastNodeInParagraph: NodeSyntaxData | null;
+    parentId: string | null;
+} {
+    const nodeSyntaxRegex = /{([^{}|]+)\|([^{}|]+)(?:\|([^{}]*))?}/g;
+    
+    // Get paragraph boundaries
+    const paragraph = getParagraphBoundaries(pos, view.state);
+    const paragraphText = view.state.doc.sliceString(paragraph.start, paragraph.end);
+    
+    // Check if cursor is within node syntax
+    nodeSyntaxRegex.lastIndex = 0;
+    let match;
+    while ((match = nodeSyntaxRegex.exec(paragraphText)) !== null) {
+        const matchStart = paragraph.start + match.index;
+        const matchEnd = matchStart + match[0].length;
+        
+        // If cursor is within this node syntax, return false
+        if (pos >= matchStart && pos <= matchEnd) {
+            return {
+                inTreeParagraph: false,
+                lastNodeInParagraph: null,
+                parentId: null
+            };
+        }
+    }
+    
+    // Find all nodes in this paragraph
+    const nodesInParagraph: NodeSyntaxData[] = [];
+    nodeSyntaxRegex.lastIndex = 0;
+    
+    while ((match = nodeSyntaxRegex.exec(paragraphText)) !== null) {
+        const nodeData: NodeSyntaxData = {
+            id: match[1].trim(),
+            parentId: match[2].trim(),
+            label: match[3] ? match[3].trim() : "",
+            from: paragraph.start + match.index,
+            to: paragraph.start + match.index + match[0].length,
+            paragraphStart: paragraph.start,
+            paragraphEnd: paragraph.end
+        };
+        nodesInParagraph.push(nodeData);
+    }
+    
+    if (nodesInParagraph.length === 0) {
+        return {
+            inTreeParagraph: false,
+            lastNodeInParagraph: null,
+            parentId: null
+        };
+    }
+    
+    // Sort nodes by position and get the last one
+    nodesInParagraph.sort((a, b) => a.from - b.from);
+    const lastNode = nodesInParagraph[nodesInParagraph.length - 1];
+    
+    return {
+        inTreeParagraph: true,
+        lastNodeInParagraph: lastNode,
+        parentId: lastNode.parentId
+    };
+}
+
+/**
+ * Get all existing node IDs in the current document
+ */
+export function getAllExistingNodeIds(view: EditorView): Set<string> {
+    const nodeSyntaxRegex = /{([^{}|]+)\|([^{}|]+)(?:\|([^{}]*))?}/g;
+    const docText = view.state.doc.toString();
+    const existingIds = new Set<string>();
+    
+    let match;
+    while ((match = nodeSyntaxRegex.exec(docText)) !== null) {
+        existingIds.add(match[1].trim());
+    }
+    
+    return existingIds;
+}
+
+/**
+ * Get all existing node IDs from an EditorState
+ */
+export function getAllExistingNodeIdsFromState(state: EditorState): Set<string> {
+    const nodeSyntaxRegex = /{([^{}|]+)\|([^{}|]+)(?:\|([^{}]*))?}/g;
+    const docText = state.doc.toString();
+    const existingIds = new Set<string>();
+    
+    let match;
+    while ((match = nodeSyntaxRegex.exec(docText)) !== null) {
+        existingIds.add(match[1].trim());
+    }
+    
+    return existingIds;
+}
+
+/**
+ * Check if cursor is within a tree paragraph but not inside node syntax (state version)
+ */
+export function isInTreeParagraphButNotInSyntaxFromState(state: EditorState, pos: number): {
+    inTreeParagraph: boolean;
+    lastNodeInParagraph: NodeSyntaxData | null;
+    parentId: string | null;
+} {
+    const nodeSyntaxRegex = /{([^{}|]+)\|([^{}|]+)(?:\|([^{}]*))?}/g;
+    
+    // Get paragraph boundaries
+    const paragraph = getParagraphBoundaries(pos, state);
+    const paragraphText = state.doc.sliceString(paragraph.start, paragraph.end);
+    
+    // Check if cursor is within node syntax
+    nodeSyntaxRegex.lastIndex = 0;
+    let match;
+    while ((match = nodeSyntaxRegex.exec(paragraphText)) !== null) {
+        const matchStart = paragraph.start + match.index;
+        const matchEnd = matchStart + match[0].length;
+        
+        // If cursor is within this node syntax, return false
+        if (pos >= matchStart && pos <= matchEnd) {
+            return {
+                inTreeParagraph: false,
+                lastNodeInParagraph: null,
+                parentId: null
+            };
+        }
+    }
+    
+    // Find all nodes in this paragraph
+    const nodesInParagraph: NodeSyntaxData[] = [];
+    nodeSyntaxRegex.lastIndex = 0;
+    
+    while ((match = nodeSyntaxRegex.exec(paragraphText)) !== null) {
+        const nodeData: NodeSyntaxData = {
+            id: match[1].trim(),
+            parentId: match[2].trim(),
+            label: match[3] ? match[3].trim() : "",
+            from: paragraph.start + match.index,
+            to: paragraph.start + match.index + match[0].length,
+            paragraphStart: paragraph.start,
+            paragraphEnd: paragraph.end
+        };
+        nodesInParagraph.push(nodeData);
+    }
+    
+    if (nodesInParagraph.length === 0) {
+        return {
+            inTreeParagraph: false,
+            lastNodeInParagraph: null,
+            parentId: null
+        };
+    }
+    
+    // Sort nodes by position and get the last one
+    nodesInParagraph.sort((a, b) => a.from - b.from);
+    const lastNode = nodesInParagraph[nodesInParagraph.length - 1];
+    
+    return {
+        inTreeParagraph: true,
+        lastNodeInParagraph: lastNode,
+        parentId: lastNode.parentId
+    };
 }

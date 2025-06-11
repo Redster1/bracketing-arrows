@@ -4,6 +4,7 @@ import { DiscourseTreeSettingTab, DiscourseTreeSettings, DEFAULT_SETTINGS } from
 import { treeViewPlugin, refreshAllTrees } from "./treeViewPlugin";
 import { treeConfig, treeConfigCompartment } from './treeConfig';
 import { iterateCM6 } from './utils';
+import { autoNodeViewPlugin } from './autoNodeHandler';
 
 export default class DiscourseTreePlugin extends Plugin {
     settings: DiscourseTreeSettings;
@@ -20,7 +21,8 @@ export default class DiscourseTreePlugin extends Plugin {
         // Initialize extensions
         this.extensions = [
             treeConfigCompartment.of(treeConfig.of(this.settings)),
-            treeViewPlugin.extension
+            treeViewPlugin.extension,
+            autoNodeViewPlugin
         ];
         
         // Register editor extensions

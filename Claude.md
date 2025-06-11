@@ -1,0 +1,7 @@
+- - To test a change, please make sure you are in the correct directory and run `npm run build`. Output the main.js and manifest.json into the discourse-tree-plugin subdirectory.
+	- If it does not build successfully, fix the errors discovered. 
+	- If it builds successfully, ask me if the changes were successful.
+- - Always make sure we 1) have a successful build and 2) I am happy with the changes **before** suggesting and drafting a commit.
+- - To understand this plugin, you can read the Bracketing Arrow Plan.md file in addition to the source code.
+- - If you notice that the code is different than the plan file, you may suggest changes, but please don't change the plan file without getting approval from me.
+- - 
